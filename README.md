@@ -43,7 +43,8 @@ Primero se elige la **obra** (o «Planta») arriba, después **quién carga**, y
 - `api/config.js` tiene un solo interruptor: **`MOCK: true`**. Con eso la app **no se conecta a nada**: usa obras, empleados, turnos y desvíos **ficticios** (`api/datos-mock.js`) y guarda lo enviado en el `localStorage` del navegador (clave `hys_mock_db`).
 - `api/odoo.js` expone las funciones que usan las vistas: `crearRegistro(modelo, valores)`, `leerRegistros(modelo, dominio, campos)`, `escribirRegistro(modelo, ids, valores)`, `leerUsuariosLocales(obra)` y `leerTurnos()`. Con `MOCK: false` las mismas funciones hacen `fetch` al **backend de hys-carga en Render**, que es el único que habla con Odoo. **La API key de Odoo nunca vive en el teléfono.**
 - Riesgos, plantilla de ítems (90) y controles legales (9) salen tal cual del documento de diseño; lo demás son datos de prueba.
-- En **Envíos → Herramientas de prueba** se puede simular «sin señal» y reiniciar la base mock.
+- Herramientas de desarrollo (simular «sin señal», reiniciar los datos de ejemplo): abrir con `?dev=1` (por ejemplo `http://localhost:8000/?dev=1#/envios`). Sin ese parámetro no se muestran; la app no muestra la palabra «mock» en ninguna pantalla.
+- Colores: paleta de [arme.ar](https://www.arme.ar) (azul `#163f8b` de la marca, ver comentarios en `css/estilos.css`).
 
 ## Usuarios y campos de control
 

@@ -185,23 +185,23 @@ export const LUGAR_PLANTA = {id: "planta", name: "Planta · Fábrica, Oficina, D
 export const USUARIOS_LOCALES = {
   9101: [
     {id: "u-9101-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9101-2", nombre: "Capataz OT 9101 (ficticio)", rol: "Capataz"},
+    {id: "u-9101-2", nombre: "Capataz OT 9101", rol: "Capataz"},
     {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"},
     {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"}
   ],
   9102: [
     {id: "u-9102-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9102-2", nombre: "Capataz OT 9102 (ficticio)", rol: "Capataz"},
+    {id: "u-9102-2", nombre: "Capataz OT 9102", rol: "Capataz"},
     {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"}
   ],
   9103: [
     {id: "u-9103-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9103-2", nombre: "Capataz OT 9103 (ficticio)", rol: "Capataz"},
+    {id: "u-9103-2", nombre: "Capataz OT 9103", rol: "Capataz"},
     {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"}
   ],
   9104: [
     {id: "u-9104-1", nombre: "Director de Obra Ejemplo 2", rol: "Director de Obra"},
-    {id: "u-9104-2", nombre: "Capataz OT 9104 (ficticio)", rol: "Capataz"},
+    {id: "u-9104-2", nombre: "Capataz OT 9104", rol: "Capataz"},
     {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"}
   ],
   9105: [

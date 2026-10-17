@@ -15,7 +15,8 @@ import { crearRegistro, escribirRegistro } from "./odoo.js";
 
 const CLAVE = "hys_cola";
 const oyentes = new Set();
-let procesando = false;
+let cadena = null;        // vuelta de envío en curso (promesa)
+let otraVuelta = false;   // alguien pidió reintentar mientras se enviaba
 
 function leer() {
   try { return JSON.parse(localStorage.getItem(CLAVE) || "[]"); } catch (e) { return []; }
@@ -40,32 +41,35 @@ export function encolar(envio) {
   guardar(cola);
 }
 
-/** Intenta mandar todo lo pendiente. Devuelve la cola actualizada. */
-export async function procesarCola() {
-  if (procesando) return leer();
-  procesando = true;
-  try {
-    for (const e of leer().filter((x) => x.estado === "pendiente")) {
-      try {
-        const resp = e.operacion === "escribir"
-          ? await escribirRegistro(e.modelo, e.ids, e.valores, { idempotencyKey: e.idempotency_key })
-          : await crearRegistro(e.modelo, e.valores, { idempotencyKey: e.idempotency_key });
-        // Enviado: se descartan los valores (fotos) para liberar espacio; queda el resumen.
-        actualizar(e.idempotency_key, { estado: "enviado", respuesta: resp, error: null, valores: null, intentos: e.intentos + 1, enviado: new Date().toISOString() });
-      } catch (err) {
-        if (err.reintentable !== false) {
-          // Sin señal o servidor caído: queda pendiente y no se sigue con el resto ahora.
-          actualizar(e.idempotency_key, { error: err.message || "Sin conexión", intentos: e.intentos + 1 });
-          break;
-        }
-        // Rechazo de validación (4xx): no se reintenta solo; se muestra el motivo.
-        actualizar(e.idempotency_key, { estado: "rechazado", error: err.message, intentos: e.intentos + 1 });
+/** Intenta mandar todo lo pendiente. Si ya hay una vuelta en curso, se encadena otra. */
+export function procesarCola() {
+  if (cadena) { otraVuelta = true; return cadena; }
+  cadena = (async () => {
+    try { do { otraVuelta = false; await vuelta(); } while (otraVuelta); }
+    finally { cadena = null; }
+    return leer();
+  })();
+  return cadena;
+}
+
+async function vuelta() {
+  for (const e of leer().filter((x) => x.estado === "pendiente")) {
+    try {
+      const resp = e.operacion === "escribir"
+        ? await escribirRegistro(e.modelo, e.ids, e.valores, { idempotencyKey: e.idempotency_key })
+        : await crearRegistro(e.modelo, e.valores, { idempotencyKey: e.idempotency_key });
+      // Enviado: se descartan los valores (fotos) para liberar espacio; queda el resumen.
+      actualizar(e.idempotency_key, { estado: "enviado", respuesta: resp, error: null, valores: null, intentos: e.intentos + 1, enviado: new Date().toISOString() });
+    } catch (err) {
+      if (err.reintentable !== false) {
+        // Sin señal o servidor caído: queda pendiente y no se sigue con el resto ahora.
+        actualizar(e.idempotency_key, { error: err.message || "Sin conexión", intentos: e.intentos + 1 });
+        break;
       }
+      // Rechazo de validación (4xx): no se reintenta solo; se muestra el motivo.
+      actualizar(e.idempotency_key, { estado: "rechazado", error: err.message, intentos: e.intentos + 1 });
     }
-  } finally {
-    procesando = false;
   }
-  return leer();
 }
 
 function actualizar(clave, cambio) {

@@ -24,6 +24,7 @@ export const FORMULARIOS = [
 ];
 
 const app = document.getElementById("app");
+const MODO_DEV = new URLSearchParams(location.search).get("dev") === "1";
 const encabezado = document.getElementById("encabezado");
 
 async function rutear() {
@@ -80,8 +81,8 @@ async function vistaSesion() {
     usuarios.length ? h("div", { class: "lista-botones" }, usuarios.map((u) => h("button", {
       type: "button", class: `btn-lista ${s.usuario?.id === u.id ? "elegida" : ""}`,
       onclick: () => { guardarSesion({ usuario: u }); location.hash = "#/"; }
-    }, h("b", {}, u.nombre), h("br"), h("small", {}, u.rol)))) : aviso("Esta obra no tiene usuarios cargados.", "alerta"),
-    CONFIG.MOCK ? aviso("Mock: se elige de la lista. El ingreso real (PIN, enlace, etc.) está por definir.", "info") : "");
+    }, h("b", {}, u.nombre), h("br"), h("small", {}, u.rol)))) : aviso("Esta obra no tiene usuarios cargados.", "alerta"));
+  // Con MOCK el ingreso es solo elegir de la lista; el mecanismo real (PIN, enlace, etc.) está por definir.
 }
 
 function vistaEnvios() {
@@ -98,12 +99,15 @@ function vistaEnvios() {
         h("span", {}, ESTADO[e.estado], e.estado === "enviado" ? ` (${e.respuesta.name})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
         e.estado === "pendiente" && e.error ? h("small", {}, ` · último intento: ${e.error}`) : "",
         h("br"), h("small", {}, new Date(e.creado).toLocaleString("es-AR"))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
-      CONFIG.MOCK ? h("details", { class: "mock-panel" }, h("summary", {}, "Herramientas de prueba (mock)"),
+      // Panel solo para desarrollo: aparece con ?dev=1 en la URL y con CONFIG.MOCK activo.
+      CONFIG.MOCK && MODO_DEV ? h("details", { class: "panel-dev" }, h("summary", {}, "Herramientas de desarrollo"),
         h("label", { class: "casilla" }, h("input", { type: "checkbox", id: "sim-sin-senal", checked: localStorage.getItem("hys_simular_sin_senal") === "1",
           onchange: (ev) => { localStorage.setItem("hys_simular_sin_senal", ev.target.checked ? "1" : "0"); } }), h("span", {}, "Simular sin señal")),
-        h("button", { type: "button", class: "btn chico", onclick: () => { if (confirm("¿Borrar la base mock local?")) { reiniciarMock(); pintar(); } } }, "Reiniciar datos mock")) : "");
+        h("button", { type: "button", class: "btn chico", onclick: () => { if (confirm("¿Borrar los datos de ejemplo guardados en este navegador?")) { reiniciarMock(); pintar(); } } }, "Reiniciar datos de ejemplo")) : "");
   };
   pintar();
+  // Si la cola cambia (reintento automático, vuelve la señal), se actualiza la lista.
+  const quitar = alCambiar(() => { if (location.hash.startsWith("#/envios")) pintar(); else quitar(); });
 }
 
 window.addEventListener("hashchange", rutear);

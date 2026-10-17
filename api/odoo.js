@@ -162,7 +162,7 @@ const mock = {
   async crear(modelo, valores, clave) {
     await demora();
     if (!navigator.onLine || localStorage.getItem("hys_simular_sin_senal") === "1") {
-      throw new ErrorApi("Sin señal (simulado)", 0);
+      throw new ErrorApi("Sin señal", 0);
     }
     const db = this.db();
     if (clave && db._idem[clave]) return db._idem[clave]; // reintento: misma respuesta (200)
@@ -179,7 +179,7 @@ const mock = {
   async escribir(modelo, ids, valores, clave) {
     await demora();
     if (!navigator.onLine || localStorage.getItem("hys_simular_sin_senal") === "1") {
-      throw new ErrorApi("Sin señal (simulado)", 0);
+      throw new ErrorApi("Sin señal", 0); // simulación de falta de señal (solo MOCK)
     }
     const db = this.db();
     if (clave && db._idem[clave]) return db._idem[clave];
