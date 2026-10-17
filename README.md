@@ -26,6 +26,8 @@ Solo README inicial. Todavía no hay código ni despliegue en Render.
 
 **Actualización 17/10/2026:** ya está el **esqueleto de la app** (formularios F01–F08 con una **API simulada, sin conexión a Odoo**). Sigue sin despliegue en Render.
 
+**Actualización 17/10/2026 (tarde):** F02 · Inspección de obra lista para probar desde el celular: **ingreso** con la lista fija de usuarios, **selector de obra con buscador**, formulario alineado con el modelo `x_hys_inspeccion` creado en Odoo, **cola sin señal en IndexedDB** y **capa de envío** que arma el payload exacto del `create` (hoy en **modo simulado**: no sale nada a la red). Sigue **sin backend y sin despliegue en Render** (cualquier deploy lo autoriza Jorge).
+
 ## Cómo probarla en la compu
 
 No hace falta instalar nada ni compilar. Desde la carpeta del repo:
@@ -34,57 +36,118 @@ No hace falta instalar nada ni compilar. Desde la carpeta del repo:
 python3 -m http.server 8000
 ```
 
-y abrir <http://localhost:8000> (en el celular, con la misma red: `http://<ip-de-la-compu>:8000`; el GPS del navegador solo funciona en `https` o en `localhost`).
+y abrir <http://localhost:8000> (en el celular, con la misma red: `http://<ip-de-la-compu>:8000`; el GPS del navegador solo funciona en `https` o en `localhost`). Con `?dev=1` (p. ej. `http://localhost:8000/?dev=1#/envios`) aparece el **panel de desarrollo**: modo de envío, «Simular sin señal», reiniciar datos y los **payloads «enviados»**.
 
-Primero se elige la **obra** (o «Planta») arriba, después **quién carga**, y después el formulario.
+Flujo: **Ingresar** (1. obra u otro lugar → 2. quién sos) → inicio → F02 → pasos cortos → Revisión → Enviar → «Enviado» o «Guardado en el celular». Arriba se ven la obra, el usuario, los envíos pendientes y **Salir**.
 
-## La API es un MOCK
+## Repo público: qué datos NO se suben (decisión D-05, 17/10/2026 18:54)
 
-- `api/config.js` tiene un solo interruptor: **`MOCK: true`**. Con eso la app **no se conecta a nada**: usa obras, empleados, turnos y desvíos **ficticios** (`api/datos-mock.js`) y guarda lo enviado en el `localStorage` del navegador (clave `hys_mock_db`).
-- `api/odoo.js` expone las funciones que usan las vistas: `crearRegistro(modelo, valores)`, `leerRegistros(modelo, dominio, campos)`, `escribirRegistro(modelo, ids, valores)`, `leerUsuariosLocales(obra)` y `leerTurnos()`. Con `MOCK: false` las mismas funciones hacen `fetch` al **backend de hys-carga en Render**, que es el único que habla con Odoo. **La API key de Odoo nunca vive en el teléfono.**
-- Riesgos, plantilla de ítems (90) y controles legales (9) salen tal cual del documento de diseño; lo demás son datos de prueba.
-- Herramientas de desarrollo (simular «sin señal», reiniciar los datos de ejemplo): abrir con `?dev=1` (por ejemplo `http://localhost:8000/?dev=1#/envios`). Sin ese parámetro no se muestran; la app no muestra la palabra «mock» en ninguna pantalla.
-- Colores: paleta de [arme.ar](https://www.arme.ar) (azul `#163f8b` de la marca, ver comentarios en `css/estilos.css`).
+El repo `jomag32/hys-carga` **queda público**. Por eso:
 
-## Usuarios y campos de control
+- **Proyectos y clientes reales:** los va a servir el **backend** desde Odoo (`GET /api/v1/obras`, con la cuenta de servicio MIA). **Nunca** se suben a GitHub. En el repo solo hay obras de **ejemplo** (`datos/obras.json`, «OT 9101 - Galpón Ejemplo Norte», …).
+- **Usuarios de carga reales:** la lista real **no** se sube a este repo. `datos/usuarios.json` tiene solo ejemplos («Usuario Ejemplo 1», …). Más adelante la sirve el backend desde un lugar privado (Postgres de Render o archivo de configuración privado).
+- **Credenciales:** ninguna en el frontend ni en el repo (ni la de MIA, ni PINs, ni tokens). La credencial de MIA va solo como variable de entorno secreta del backend en Render.
+- Para probar en la compu con datos reales se puede generar `datos/obras.local.json` (misma forma que `obras.json`): está en `.gitignore` y la app lo usa primero si existe (solo modo simulado).
 
-- **Usuarios propios por obra (decisión 17/10/2026).** hys-carga tiene su **propia lista de usuarios por obra (nombre y rol)**: no hay un usuario de Odoo por operario. Para entrar se elige el nombre de la lista de la obra seleccionada (en el mock es solo elegir; el ingreso real está por definir). Todo lo que se escribe en Odoo pasa por **una única cuenta de servicio**, del lado del servidor.
-- **Cada registro lleva sus campos de control:** quién cargó (`x_cargado_por_ref`, `x_cargado_por_nombre`, `x_cargado_por_rol`, del usuario local), fecha y hora del control (`x_fecha_hora_control`, con zona `-03:00`), clave de idempotencia (`x_idempotency_key`, creada al abrir el formulario) y GPS.
-- **GPS (decisión D-03):** se toma con `navigator.geolocation` al abrir el formulario y viaja con el envío: `x_gps_lat`, `x_gps_lon`, `x_gps_precision`, `x_gps_fecha`. Si se niega el permiso o no hay GPS, **se envía igual** con coordenadas vacías y `x_gps_estado` (`denegado`, `no_disponible`, `tiempo_agotado`, `sin_soporte`).
-- La fecha de recepción (`x_fecha_recepcion`) la pone el backend. En el cierre de desvío (F07) los mismos campos van con prefijo `x_cierre_` porque el desvío ya tiene los suyos.
-- **Para IT:** `x_gps_precision`, `x_gps_fecha`, `x_gps_estado` y `x_cargado_por_*` no estaban en el diseño v1: hay que agregarlos a los modelos cabecera `x_hys_*` (con los usuarios locales, `x_cargado_por_id` a `hr.employee` deja de ser la referencia de quién cargó).
+## Usuarios de carga (D-04 revisada)
 
-## Sin señal
+- Lista **fija de texto** dentro de hys-carga, no en Odoo: `datos/usuarios.json` = `[{id, nombre, rol, obras: [id de project.project | "planta" | "*"], activo}]`. `"*"` = habilitado en todas las obras (p. ej. HyS). `activo: false` = dado de baja (no aparece, pero los registros viejos conservan su texto).
+- Ingreso: se elige la obra (o «Planta») y después el nombre de la lista de esa obra. La sesión queda en `localStorage` (`hys_sesion`); **Salir** la cierra.
+- **Método de acceso (PIN, enlace, etc.): pendiente** (diseño §7.4 #4). Hoy es solo elegir, sin contraseñas.
+- En cada registro viaja `x_cargado_por` (char) con el formato del diseño §2.15: `<id> · <nombre> · <rol> · <obra>`, p. ej. `EJ-004 · Usuario Ejemplo 4 · Capataz · OT 9104`.
 
-Cada envío se guarda primero en el celular (`api/cola.js`, en `localStorage`) y después se intenta mandar. Se reintenta solo al volver la señal, al abrir la app y cada 30 segundos, siempre con la misma clave de idempotencia. Estados visibles en **Envíos**: «En el celular», «Enviado a Odoo (INS-2026-00001)» o «Rechazado: motivo». El diseño apunta a IndexedDB para tener más lugar para fotos; el cambio queda dentro de `cola.js`.
+## Obras: selector de F02 (y del ingreso)
+
+- `api/odoo.js` → `listarObrasActivas()`. Modo `backend`: `GET /api/v1/obras` (el backend consulta Odoo con MIA). Modo `simulado`: lee `datos/obras.local.json` si existe y si no `datos/obras.json`. Guarda una copia para usar sin señal.
+- Muestra **todos** los proyectos «en obra» (no filtra por la obra del ingreso; esa solo viene marcada), con buscador mientras se escribe, **sin distinguir mayúsculas ni acentos**, por **nombre**, **número de OT** («9102», «OT 9102») o **número de proyecto** (id de `project.project`, «proyecto 102»).
+- **Criterio «en obra» propuesto** (relevado en Odoo el 17/10/2026, solo lectura): `project.project` con etapa `stage_id` = «EN PROGRESO», `is_template` = Falso, `active` = Verdadero → 27 proyectos (25 con número de OT en el nombre; 2 se llaman «VARIOS»). Etapas existentes: NO INICIADAS, EN PROGRESO, FINALIZADO, Cancelled, PAUSADO. No hay campo `x_` ni etiqueta que marque «en obra»; las etiquetas existentes son de empresa o contratista, no de estado. *A confirmar por Jorge* (¿excluir «VARIOS»? ¿incluir PAUSADO?).
+- El número de OT se saca del nombre (`OT 9101 - …`, `0T-9101-…`, `OT.9101 …`); Odoo no tiene un campo de código de proyecto.
+
+## Modos (api/config.js)
+
+| Interruptor | Valor | Qué hace |
+|---|---|---|
+| `MODO_ENVIO` | **`"simulado"`** (hoy) | No sale nada a la red. Se valida el payload igual que lo hará el backend, se guarda en la lista local «enviados» (`localStorage` `hys_enviados_simulados`) y se ve en el panel `?dev=1`. La pantalla dice «Enviado (modo prueba)». |
+| | `"backend"` | `POST {API_BASE}/inspecciones` con cabecera `Idempotency-Key`. El backend (futuro, Render) valida, aplica idempotencia y llama a Odoo con MIA: `/json/2/x_hys_inspeccion/create` con `vals_list = [cuerpo.odoo.vals]`. |
+| `API_BASE` | `"/api/v1"` | Mismo origen cuando la app la sirva el backend de Render. |
+| `MOCK` | `true` | Catálogos de ejemplo (`api/datos-mock.js`: inspectores, plantilla de ítems, fichas, hitos) y guardado local de F01, F03–F08. |
+
+## F02 · Inspección de obra → `x_hys_inspeccion`
+
+Pasos: **Tipo** (ámbito Obra/Fábrica/Oficina + tipo de programa) → **Obra** (OT obligatoria si ámbito = obra; **Hito** obligatorio si «Inicio de hito crítico (72 h)») → **Modalidad e inspector** → **Ítems generales** (6) → bloques de riesgo de la Ficha de la OT (si la tiene) → **Toma de conocimiento** (nombre, firma en pantalla, observaciones) → Revisión → Enviar.
+
+Selecciones, tal cual el modelo de Odoo: `x_formulario` F02 · `x_ambito` obra/fabrica/oficina · `x_tipo_programa` periodica, hito_critico, apertura, recorrida_semanal, check_mensual, fuera_programa · `x_respuesta` si/no/na · `x_criticidad` critico/mayor/menor · `x_gps_estado` ok/denegado/sin_posicion/no_disponible · `x_origen` = formulario.
+
+Automáticos: `x_fecha_hora_control` (al tocar Enviar), GPS con `navigator.geolocation` al abrir (`x_gps_lat`, `x_gps_lon`, `x_gps_precision_m`, `x_gps_fecha`, `x_gps_estado`; si no hay permiso o posición se envía igual), `x_idempotency_key` (UUID al abrir el formulario), `x_cargado_por`.
+
+Cada «No» pide **gravedad** y **foto** (cámara, comprimida a JPEG ≤ 1600 px, calidad 0,7). Comentario opcional en cualquier ítem.
+
+Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UTC `AAAA-MM-DD HH:MM:SS` como las guarda Odoo):
+
+```json
+{
+  "formulario": "F02",
+  "idempotency_key": "f8fc0963-…",
+  "odoo": { "model": "x_hys_inspeccion", "method": "create", "vals": {
+    "x_formulario": "F02", "x_ambito": "obra", "x_tipo_programa": "hito_critico", "x_estado": "realizada",
+    "x_ot_id": 101, "x_hito_id": 1000, "x_inspector_id": 11,
+    "x_tc_nombre": "Capataz Ejemplo", "x_tc_firma": "<base64 PNG>", "x_tc_observaciones": "Sin observaciones",
+    "x_origen": "formulario", "x_idempotency_key": "f8fc0963-…",
+    "x_fecha_hora_control": "2026-10-17 21:57:55",
+    "x_gps_lat": -27.3671, "x_gps_lon": -55.8961, "x_gps_precision_m": 12, "x_gps_fecha": "2026-10-17 21:57:46", "x_gps_estado": "ok",
+    "x_cargado_por": "EJ-004 · Usuario Ejemplo 4 · Capataz · OT 9104",
+    "x_linea_ids": [
+      [0, 0, {"x_name": "Orden y limpieza del frente; …", "x_bloque": "Generales · siempre", "x_item_codigo": "F02-GEN-01", "x_secuencia": 1,
+              "x_respuesta": "si", "x_criticidad": false, "x_foto": false, "x_comentario": "Todo ordenado"}],
+      [0, 0, {"x_name": "Vallado y señalización …", "x_bloque": "Generales · siempre", "x_item_codigo": "F02-GEN-02", "x_secuencia": 2,
+              "x_respuesta": "no", "x_criticidad": "critico", "x_foto": "<base64 JPEG>", "x_comentario": "Disyuntor puenteado"}]
+    ] } },
+  "contexto": { "obra": "OT 9101 - …", "modalidad": "presencial", "clase_al_inspeccionar": "A", "clase_motivo": "…",
+                "cant_no": 1, "desvios_a_generar": 1, "campos_pendientes_en_odoo": ["x_cargado_por"], "app": "hys-carga web" }
+}
+```
+
+`x_linea_ids` usa comandos `[0, 0, {...}]` (= `(0, 0, {...})` / `Command.create`): cabecera y líneas en **una sola llamada**, todo o nada. `contexto` no va al `create`: son datos que el backend puede usar (modalidad, clase, desvíos) mientras no se confirme que esos campos existen en el modelo creado.
+
+## Sin señal (api/cola.js)
+
+Cada envío se guarda primero en el celular, en **IndexedDB** (base `hys-carga`, almacén `cola`, clave = idempotency key; si no hay IndexedDB, `localStorage`). Lo que había en la cola vieja de `localStorage` se migra solo. Se reintenta **al volver la señal** (evento `online`), **al abrir la app**, cada 30 s y con **«Reintentar ahora»** (pantalla Envíos). Siempre con la **misma clave**: la cola no duplica y el backend (o el modo simulado) devuelve la misma respuesta si ya lo recibió. Estados: «En el celular», «Enviado (INS-2026-00001)», «Rechazado: motivo». La cantidad pendiente se ve arriba (📱 N), en el inicio y en Envíos.
+
+## Pruebas (17/10/2026)
+
+Chrome sin ventana (Playwright) en tamaño celular (390×844): ingreso con búsqueda de obra → F02 con los 6 ítems generales (un «No» crítico con foto y comentario) → enviado con señal; validación de «No» sin foto; F02 sin señal (`set_offline`) → «Guardado en el celular», 1 pendiente, reintento manual sigue pendiente → vuelve la señal → cola vacía sola; reenvío con la misma clave → misma respuesta, sin duplicar. Los demás formularios (F01–F08) abren sin errores.
 
 ## Cómo está armada (y por qué)
 
 - **HTML + CSS + JavaScript sin frameworks, sin build y sin CDNs.** Un solo `index.html` con ruteo por *hash* (`#/f01`, `#/envios`, …) en `app.js`. Cada formulario es un **módulo ES** en `vistas/` que se carga recién cuando se abre (`import()`). Se eligió así porque es lo más liviano para un celular con mala señal, se sirve como archivos estáticos (desde el backend de Render o cualquier servidor) y no hace falta Node ni compilar para cambiar algo.
 - Las vistas son **declarativas**: cada una lista sus pasos cortos (pocos campos por pantalla), la revisión y cómo se arma el registro `x_hys_*`. El motor común (`componentes/asistente.js`) pone Atrás/Siguiente, valida cada paso, guarda borrador, muestra la revisión final y manda a la cola.
-- Checklists (F02, F03, F04, F08): Sí / No / N/A con botones grandes. Cada «No» pide **gravedad + foto obligatoria** y arma el **desvío** anidado (lo de plazos y responsable lo calcula Odoo). En F03 además pide el sector; en F08 el N/A pide justificación y un crítico ★ en «No» impide «Autorizado».
+- Checklists (F02, F03, F04, F08): Sí / No / N/A con botones grandes. Cada «No» pide **gravedad + foto obligatoria**; en F03, F04 y F08 arma además el **desvío** anidado (en F02 lo genera el backend u Odoo, ver Pendiente). En F03 además pide el sector; en F08 el N/A pide justificación y un crítico ★ en «No» impide «Autorizado».
 
 ## Archivos
 
 ```
 hys-carga/
-├── index.html                    # Pantalla única: encabezado (obra / quién carga / envíos) + contenido
-├── app.js                        # Arranque, ruteo por hash, inicio (F01–F08), elegir obra, elegir usuario, envíos
+├── index.html                    # Pantalla única: encabezado (obra / quién carga / envíos / Salir) + contenido
+├── app.js                        # Arranque, ruteo por hash, ingreso (obra → usuario), inicio, envíos, panel ?dev=1
+├── datos/
+│   ├── usuarios.json             # Lista fija de usuarios de carga: SOLO EJEMPLOS (repo público)
+│   ├── obras.json                # Obras «en obra» de EJEMPLO para el modo simulado
+│   └── obras.local.json          # (no se sube, .gitignore) copia real para probar en la compu
 ├── css/estilos.css               # Mobile-first, botones grandes, sin frameworks
 ├── api/
-│   ├── config.js                 # MOCK = true/false, URL del backend, zona horaria, fotos
-│   ├── odoo.js                   # crearRegistro / leerRegistros / escribirRegistro (mock y fetch al backend)
-│   ├── cola.js                   # Cola sin conexión con reintentos e idempotencia
-│   └── datos-mock.js             # Datos de prueba (obras, usuarios locales, empleados, turnos, ítems, ...)
+│   ├── config.js                 # MODO_ENVIO simulado/backend, API_BASE, MOCK, fuentes de usuarios y obras
+│   ├── odoo.js                   # Envío F02 (payload, validación, simulado/backend), obras, usuarios, catálogos
+│   ├── cola.js                   # Cola sin conexión en IndexedDB con reintentos e idempotencia
+│   └── datos-mock.js             # Datos de ejemplo (obras, empleados, turnos, ítems, fichas, hitos, ...)
 ├── componentes/
-│   ├── selector-obra.js          # Selector de obra (OT), usado por F01, F02, F05 y por el encabezado
+│   ├── selector-obra.js          # Selector de obra con buscador (nombre / OT / n.º de proyecto), ingreso, F01, F02, F05
 │   ├── selector-turno.js         # Selector de turno (F08); turnos a definir por la empresa
-│   ├── campos-auto.js            # Idempotency key, fecha/hora con zona, GPS con falla controlada, campos de control
+│   ├── campos-auto.js            # Idempotency key, fecha/hora, GPS (x_gps_*), x_cargado_por
 │   ├── campos.js                 # Campos grandes: texto, opciones, casillas, foto (comprimida), firma en pantalla
 │   ├── checklist.js              # Sí/No/N/A, «No» → gravedad + foto → desvío
 │   ├── asistente.js              # Motor de pasos: Atrás/Siguiente, borrador, revisión y Enviar
 │   ├── encabezado.js             # Encabezado compartido
-│   ├── sesion.js                 # Obra y usuario local elegidos
+│   ├── sesion.js                 # Sesión: obra y usuario de la lista elegidos; Salir
 │   └── util.js                   # Ayudas de DOM
 └── vistas/
     ├── f01-ficha-riesgo.js       # HYS-F01 · Ficha de Riesgos de Obra        → x_hys_ficha
@@ -98,11 +161,16 @@ hys-carga/
     └── _inspeccion-planta.js     # Partes comunes de F03 y F04
 ```
 
-## Pendiente / simplificado en este esqueleto
+## Pendiente
 
-- Sin backend: los endpoints `/api/v1/registros/...` de `odoo.js` son provisorios; el diseño (§5.5) define endpoints por formulario y fotos en `multipart`.
-- Ingreso de usuarios: en el mock se elige de la lista; falta definir el mecanismo real.
-- Turnos (F08): Mañana 07:00 y Tarde 14:00 son un supuesto; la empresa tiene que definirlos.
-- F02 se crea como inspección «fuera de programa»; enlazarla con la inspección programada lo resuelve el backend.
-- F01: la clase de riesgo, la frecuencia y los hitos críticos no se calculan acá (los calcula Odoo). F05: la investigación la carga HyS en Odoo. F07 lista todos los desvíos abiertos (en producción, solo los del responsable).
-- Cola y fotos en `localStorage` (el diseño pide IndexedDB). Sin *service worker* todavía.
+- **Backend real en Render** (no existe): `POST /api/v1/inspecciones`, `GET /api/v1/obras`, lista de usuarios, idempotencia en Postgres (§5.2), y llamada a Odoo con **MIA** del lado del servidor. No se despliega nada sin el OK de Jorge.
+- **Permiso de escritura de MIA** sobre los modelos `x_hys_*` (pendiente en Odoo).
+- **Crear `x_cargado_por` (char) en `x_hys_inspeccion`** cuando Jorge lo indique. Hasta entonces el payload lo trae y el backend lo tiene que quitar (o crearlo antes), porque Odoo rechaza campos inexistentes. Confirmar también que `x_estado` esté creado.
+- **Método de acceso** de los usuarios (PIN, enlace, etc., §7.4 #4) y **dónde vive la lista real** (privada, servida por el backend).
+- **Criterio «en obra»** a confirmar (hoy: etapa EN PROGRESO, no plantilla).
+- **Modelo de plantilla de ítems** (`x_hys_item_plantilla`) en Odoo: hoy los ítems salen del Anexo A (en `datos-mock.js`) y viajan por **código** (`x_item_codigo`), no como many2one.
+- Ids de ejemplo: `x_ot_id`, `x_inspector_id` y `x_hito_id` de los ejemplos no son ids reales de Odoo; los da el backend con los catálogos.
+- **Desvíos:** cada «No» debería generar un `x_hys_desvio`; no va en este payload (el modelo no está confirmado). Lo resuelve el backend o una automatización de Odoo.
+- Fotos y firma viajan en base64 dentro del JSON; el diseño (§5.3) prefiere `multipart` con Blob. Sin *service worker* todavía (la app necesita señal para abrir la primera vez).
+- F02 se crea con el tipo elegido; enlazarla con una inspección **programada** existente (`write` en vez de `create`) lo resuelve el backend (§5.5).
+- Turnos (F08): Mañana 07:00 y Tarde 14:00 son un supuesto. F01, F03–F08 siguen con el guardado de ejemplo (todavía no usan la capa de envío de F02).

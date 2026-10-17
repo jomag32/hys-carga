@@ -5,7 +5,7 @@
 //   · GPS (decisión D-03): se pide al cargar el formulario; viaja con lat, lon, precisión y
 //     fecha de captura. Si se niega o no hay GPS, se envía igual con coordenadas vacías y una
 //     marca (x_gps_estado) que explica por qué.
-//   · quién cargó: usuario LOCAL de hys-carga (id, nombre y rol) de la obra elegida.
+//   · quién cargó: usuario de la lista fija de hys-carga (datos/usuarios.json), como texto x_cargado_por.
 // La fecha de recepción (x_fecha_recepcion) la pone el backend, no el celular.
 
 import { CONFIG } from "../api/config.js";
@@ -30,18 +30,20 @@ export const hoyIso = () => ahoraIso().slice(0, 10);
 
 /**
  * Pide la ubicación. Nunca rechaza: si falla devuelve coordenadas vacías y el motivo.
- * → {lat, lon, precision, fecha, estado: "ok"|"denegado"|"no_disponible"|"tiempo_agotado"|"sin_soporte"}
+ * → {lat, lon, precision, fecha, estado} con estado = valores de x_gps_estado (§2.14):
+ *   "ok" Capturado · "denegado" Permiso denegado · "sin_posicion" Sin posición / tiempo agotado ·
+ *   "no_disponible" Navegador sin geolocalización.
  */
 export function tomarGps({ timeout = 15000 } = {}) {
   const vacio = (estado) => ({ lat: null, lon: null, precision: null, fecha: ahoraIso(), estado });
-  if (!("geolocation" in navigator)) return Promise.resolve(vacio("sin_soporte"));
+  if (!("geolocation" in navigator)) return Promise.resolve(vacio("no_disponible"));
   return new Promise((ok) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => ok({
         lat: pos.coords.latitude, lon: pos.coords.longitude,
         precision: Math.round(pos.coords.accuracy), fecha: ahoraIso(new Date(pos.timestamp)), estado: "ok"
       }),
-      (err) => ok(vacio({ 1: "denegado", 2: "no_disponible", 3: "tiempo_agotado" }[err.code] || "no_disponible")),
+      (err) => ok(vacio(err.code === 1 ? "denegado" : "sin_posicion")),
       { enableHighAccuracy: true, timeout, maximumAge: 60000 }
     );
   });
@@ -51,30 +53,37 @@ export const TEXTO_GPS = {
   pendiente: "Buscando ubicación…",
   ok: "Ubicación tomada",
   denegado: "Sin permiso de ubicación: se envía igual, sin coordenadas",
-  no_disponible: "GPS no disponible: se envía igual, sin coordenadas",
-  tiempo_agotado: "El GPS no respondió a tiempo: se envía igual, sin coordenadas",
-  sin_soporte: "Este navegador no tiene GPS: se envía igual, sin coordenadas"
+  sin_posicion: "El GPS no dio posición: se envía igual, sin coordenadas",
+  no_disponible: "Este navegador no tiene GPS: se envía igual, sin coordenadas"
 };
 
+/** Obra en formato corto para «Cargado por»: "OT 9101", "Proyecto 384" (sin número de OT) o "Planta". */
+export const obraCorta = (obra) => (!obra ? "—" : obra.id === "planta" ? "Planta" : obra.ot ? `OT ${obra.ot}` : `Proyecto ${obra.id}`);
+
 /**
- * Campos de control que lleva TODO registro cabecera enviado a Odoo.
- * x_gps_lat/x_gps_lon, x_fecha_hora_control e x_idempotency_key están en el diseño;
- * x_gps_precision, x_gps_fecha, x_gps_estado y x_cargado_por_* son NUEVOS (decisiones del
- * 17/10/2026) y hay que agregarlos a los modelos x_hys_* (ver README).
+ * Texto de x_cargado_por (char, D-04 revisada, §2.15): "<id> · <nombre> · <rol> · <obra>",
+ * con los datos del usuario de la lista fija de hys-carga al momento de cargar.
+ */
+export function textoCargadoPor(sesion = leerSesion()) {
+  const u = sesion.usuario;
+  return u ? [u.id, u.nombre, u.rol, obraCorta(sesion.obra)].join(" · ") : false;
+}
+
+/**
+ * Campos de control que lleva TODO registro cabecera enviado a Odoo (§2.8, §2.14, §2.15):
+ * clave de idempotencia, fecha/hora del control, GPS (x_gps_*) y quién cargó (x_cargado_por).
+ * x_cargado_por todavía no existe en Odoo (se crea cuando Jorge lo indique).
  */
 export function camposControl(auto, { claveCampo = "x_idempotency_key" } = {}) {
-  const u = leerSesion().usuario || {};
   const g = auto.gps || { estado: "no_disponible" };
   return {
     [claveCampo]: auto.idempotency_key,
     x_fecha_hora_control: auto.fecha_hora_control,
     x_gps_lat: g.lat ?? false,
     x_gps_lon: g.lon ?? false,
-    x_gps_precision: g.precision ?? false,
+    x_gps_precision_m: g.precision ?? false,
     x_gps_fecha: g.fecha || false,
     x_gps_estado: g.estado,
-    x_cargado_por_ref: u.id || false,
-    x_cargado_por_nombre: u.nombre || false,
-    x_cargado_por_rol: u.rol || false
+    x_cargado_por: textoCargadoPor()
   };
 }

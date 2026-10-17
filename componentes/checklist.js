@@ -20,7 +20,7 @@ export const SECTORES_FABRICA = [
 ];
 
 /** Dibuja los ítems. d.respuestas[item.id] = {respuesta, criticidad, foto, comentario, sector, justificacion_na} */
-export function checklist(items, d, { conSector = false, naJustificado = false } = {}) {
+export function checklist(items, d, { conSector = false, naJustificado = false, comentarioSiempre = false } = {}) {
   d.respuestas = d.respuestas || {};
   return h("div", { class: "checklist" }, items.map((it) => {
     const r = (d.respuestas[it.id] = d.respuestas[it.id] || {});
@@ -35,10 +35,14 @@ export function checklist(items, d, { conSector = false, naJustificado = false }
           campoArea(r, "comentario", "Comentario (opcional)", { filas: 2 })].filter(Boolean));
       } else if (r.respuesta === "na" && naJustificado) {
         detalle.replaceChildren(campoArea(r, "justificacion_na", "¿Por qué no aplica?", { requerido: true, filas: 2 }));
+      } else if (r.respuesta && comentarioSiempre) {
+        // Comentario del inspector (x_comentario) opcional también en Sí / N/A, plegado para no ocupar lugar.
+        detalle.replaceChildren(h("details", { class: "comentario-item", open: !!r.comentario },
+          h("summary", {}, "💬 Agregar comentario"), campoArea(r, "comentario", "Comentario (opcional)", { filas: 2 })));
       } else detalle.replaceChildren();
     };
     pintarDetalle();
-    return h("div", { class: `item ${it.x_critico ? "critico" : ""}` },
+    return h("div", { class: `item ${it.x_critico ? "critico" : ""}`, "data-codigo": it.x_codigo || "" },
       h("p", { class: "item-texto" }, it.x_critico ? "★ " : "", it.x_name),
       campoOpciones(r, "respuesta", null, [["si", "Sí", { clase: "verde" }], ["no", "No", { clase: "rojo" }], ["na", "N/A"]],
         { columnas: 3, alCambiar: pintarDetalle }),
@@ -70,9 +74,14 @@ export function armarLineasYDesvios(items, d, { tipo = "inspeccion", origen, amb
   const lineas = [], desvios = [];
   for (const it of items) {
     const r = d.respuestas[it.id];
-    const base = { x_item_id: it.id, x_name: it.x_name, x_secuencia: it.x_secuencia, x_respuesta: r.respuesta };
-    if (tipo === "inspeccion") Object.assign(base, { x_bloque: it.x_bloque, x_comentario: r.comentario || false });
-    else Object.assign(base, { x_critico: !!it.x_critico, x_justificacion_na: r.justificacion_na || false });
+    // x_hys_inspeccion_linea (modelo ya creado en Odoo): x_name, x_bloque, x_item_codigo, x_secuencia,
+    // x_respuesta, x_criticidad, x_foto, x_comentario. El ítem de plantilla viaja por CÓDIGO
+    // (x_item_codigo), no como many2one: el modelo x_hys_item_plantilla todavía no está en Odoo.
+    const base = tipo === "inspeccion"
+      ? { x_name: it.x_name, x_bloque: it.x_bloque, x_item_codigo: it.x_codigo, x_secuencia: it.x_secuencia, x_respuesta: r.respuesta,
+        x_criticidad: false, x_foto: false, x_comentario: r.comentario?.trim() || false }
+      : { x_item_id: it.id, x_name: it.x_name, x_secuencia: it.x_secuencia, x_respuesta: r.respuesta,
+        x_critico: !!it.x_critico, x_justificacion_na: r.justificacion_na || false };
     if (r.respuesta === "no") {
       Object.assign(base, { x_criticidad: r.criticidad, x_foto: r.foto });
       if (r.sector) base.x_sector = r.sector;

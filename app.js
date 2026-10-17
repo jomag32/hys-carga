@@ -3,12 +3,13 @@
 
 import { h } from "./componentes/util.js";
 import { pintarEncabezado } from "./componentes/encabezado.js";
-import { leerSesion, guardarSesion } from "./componentes/sesion.js";
+import { leerSesion, guardarSesion, cerrarSesion } from "./componentes/sesion.js";
 import { selectorObra } from "./componentes/selector-obra.js";
 import { montarAsistente } from "./componentes/asistente.js";
 import { aviso } from "./componentes/campos.js";
-import { leerUsuariosLocales, reiniciarMock } from "./api/odoo.js";
-import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar } from "./api/cola.js";
+import { leerUsuariosLocales, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
+import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
+import { ahoraIso } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
@@ -33,12 +34,12 @@ async function rutear() {
   const s = leerSesion();
   const form = FORMULARIOS.find((f) => f.ruta === ruta);
   try {
-    if (ruta === "obra") return vistaObra();
-    if (ruta === "sesion") return vistaSesion();
+    if (ruta === "ingresar" || ruta === "obra" || ruta === "sesion") return vistaIngreso();
+    if (ruta === "salir") { cerrarSesion(); location.replace("#/ingresar"); return; }
     if (ruta === "envios") return vistaEnvios();
+    // Sin ingreso (obra + usuario de la lista) no se carga nada.
+    if (!s.obra || !s.usuario) { location.replace("#/ingresar"); return; }
     if (form) {
-      if (!s.obra) { location.hash = "#/obra"; return; }
-      if (!s.usuario) { location.hash = "#/sesion"; return; }
       const mod = await import(`./vistas/${form.archivo}`);
       return montarAsistente(app, mod.default);
     }
@@ -50,9 +51,11 @@ async function rutear() {
 }
 
 function vistaInicio() {
-  const s = leerSesion();
+  const pend = contarPendientes();
   app.replaceChildren(
-    !s.obra ? aviso("Primero elegí la obra (o Planta) arriba.", "alerta") : !s.usuario ? aviso("Elegí quién carga (arriba).", "alerta") : "",
+    pend ? h("div", { class: "aviso alerta caja-pendientes", id: "aviso-pendientes" },
+      h("span", {}, `📱 ${pend} envío${pend > 1 ? "s" : ""} en el celular, sin mandar todavía.`),
+      h("button", { type: "button", class: "btn chico", onclick: async () => { await procesarCola(); rutear(); } }, "Reintentar")) : "",
     h("h1", { class: "titulo-inicio" }, "¿Qué vas a cargar?"),
     h("div", { class: "grilla-formularios" }, FORMULARIOS.map((f) =>
       h("a", { class: "btn-formulario", href: `#/${f.ruta}`, id: `ir-${f.ruta}` },
@@ -61,53 +64,75 @@ function vistaInicio() {
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"));
 }
 
-function vistaObra() {
-  const d = {};
-  app.replaceChildren(h("h1", {}, "Elegí la obra"),
-    selectorObra(d, "obra", { etiqueta: "Obra o lugar", incluirPlanta: true, alCambiar: (o) => {
-      const antes = leerSesion().obra;
-      guardarSesion({ obra: { id: o.id, name: o.name, partner_id: o.partner_id, user_id: o.user_id, x_mock_km: o.x_mock_km }, ...(antes?.id !== o.id ? { usuario: null } : {}) });
-      location.hash = "#/sesion";
-    } }));
-}
-
-async function vistaSesion() {
+// Ingreso (D-04 revisada): 1) elegir la obra, 2) elegir el nombre de la lista fija de esa obra.
+// Método de acceso (PIN, enlace, etc.) PENDIENTE (§7.4 #4): hoy es solo elegir, sin contraseñas.
+function vistaIngreso() {
   const s = leerSesion();
-  if (!s.obra) { location.hash = "#/obra"; return; }
-  app.replaceChildren(h("h1", {}, "¿Quién carga?"), h("p", { class: "ayuda" }, `Personas habilitadas en ${s.obra.name}.`), h("p", { class: "cargando" }, "Cargando…"));
-  const usuarios = await leerUsuariosLocales(s.obra.id);
-  app.replaceChildren(h("h1", {}, "¿Quién carga?"),
-    h("p", { class: "ayuda" }, `Personas habilitadas en ${s.obra.name}. Nadie carga por otro.`),
-    usuarios.length ? h("div", { class: "lista-botones" }, usuarios.map((u) => h("button", {
-      type: "button", class: `btn-lista ${s.usuario?.id === u.id ? "elegida" : ""}`,
-      onclick: () => { guardarSesion({ usuario: u }); location.hash = "#/"; }
-    }, h("b", {}, u.nombre), h("br"), h("small", {}, u.rol)))) : aviso("Esta obra no tiene usuarios cargados.", "alerta"));
-  // Con MOCK el ingreso es solo elegir de la lista; el mecanismo real (PIN, enlace, etc.) está por definir.
+  const d = { obra: s.obra || undefined };
+  const marca = h("div", { class: "ingreso-marca" }, h("b", {}, "HyS · Tecnología ARME"), h("span", {}, "Carga de Higiene y Seguridad en obra"));
+  const pasos = (n) => h("div", { class: "pasos-ingreso" },
+    h("span", { class: n === 1 ? "activo" : "" }, "1. Obra"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Quién sos"));
+  const paso1 = () => app.replaceChildren(marca, pasos(1), h("h1", {}, "Ingresar"),
+    selectorObra(d, "obra", { etiqueta: "¿En qué obra o lugar estás?", incluirPlanta: true, alCambiar: (o) => paso2(o) }));
+  const paso2 = async (o) => {
+    app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
+    let usuarios = [];
+    try { usuarios = await leerUsuariosLocales(o.id); }
+    catch (e) { app.replaceChildren(marca, aviso(e.message, "error"), h("button", { type: "button", class: "btn secundario", onclick: paso1 }, "← Volver")); return; }
+    app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"),
+      h("p", { class: "ayuda" }, `Personas habilitadas en ${o.name}. Nadie carga por otro.`),
+      usuarios.length ? h("div", { class: "lista-botones", id: "lista-usuarios" }, usuarios.map((u) => h("button", {
+        type: "button", class: "btn-lista", "data-usuario-id": u.id,
+        onclick: () => {
+          const { id, name, ot, partner_id, user_id, x_mock_km } = o;
+          guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km }, usuario: u, ingreso: ahoraIso() });
+          location.hash = "#/";
+        }
+      }, h("b", {}, u.nombre), h("br"), h("small", {}, `${u.rol} · ${u.id}`)))) : aviso("Esta obra no tiene personas habilitadas en la lista.", "alerta"),
+      aviso("Acceso con PIN u otro método: pendiente de definir. Por ahora solo se elige el nombre.", "info"),
+      h("button", { type: "button", class: "btn secundario", id: "btn-cambiar-obra", onclick: paso1 }, "← Cambiar obra"));
+  };
+  paso1();
 }
 
 function vistaEnvios() {
-  const ESTADO = { pendiente: "📱 En el celular", enviado: "✅ Enviado a Odoo", rechazado: "⛔ Rechazado" };
+  const prueba = CONFIG.MODO_ENVIO === "simulado";
+  const ESTADO = { pendiente: "📱 En el celular", enviado: prueba ? "✅ Enviado (modo prueba)" : "✅ Enviado a Odoo", rechazado: "⛔ Rechazado" };
   const pintar = () => {
     const cola = listarCola();
+    const pend = cola.filter((e) => e.estado === "pendiente").length;
     app.replaceChildren(h("h1", {}, "Envíos del celular"),
-      aviso("Hasta que no figura «Enviado a Odoo», no se hizo.", "info"),
+      aviso("Hasta que no figura «Enviado», no se hizo.", "info"),
+      h("p", { id: "cant-pendientes" }, h("b", {}, `${pend} pendiente${pend === 1 ? "" : "s"}`), navigator.onLine ? "" : " · sin señal ahora"),
       h("div", { class: "acciones" },
         h("button", { type: "button", class: "btn primario", id: "btn-reintentar", onclick: async () => { await procesarCola(); pintar(); } }, "Reintentar ahora"),
-        h("button", { type: "button", class: "btn secundario", onclick: () => { limpiarEnviados(); pintar(); } }, "Limpiar enviados")),
+        h("button", { type: "button", class: "btn secundario", onclick: async () => { await limpiarEnviados(); pintar(); } }, "Limpiar enviados")),
       cola.length ? h("ul", { class: "lista-envios" }, cola.map((e) => h("li", { class: e.estado },
         h("b", {}, `HYS-${e.formulario} · ${e.titulo}`), h("br"),
         h("span", {}, ESTADO[e.estado], e.estado === "enviado" ? ` (${e.respuesta.name})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
         e.estado === "pendiente" && e.error ? h("small", {}, ` · último intento: ${e.error}`) : "",
-        h("br"), h("small", {}, new Date(e.creado).toLocaleString("es-AR"))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
-      // Panel solo para desarrollo: aparece con ?dev=1 en la URL y con CONFIG.MOCK activo.
-      CONFIG.MOCK && MODO_DEV ? h("details", { class: "panel-dev" }, h("summary", {}, "Herramientas de desarrollo"),
-        h("label", { class: "casilla" }, h("input", { type: "checkbox", id: "sim-sin-senal", checked: localStorage.getItem("hys_simular_sin_senal") === "1",
-          onchange: (ev) => { localStorage.setItem("hys_simular_sin_senal", ev.target.checked ? "1" : "0"); } }), h("span", {}, "Simular sin señal")),
-        h("button", { type: "button", class: "btn chico", onclick: () => { if (confirm("¿Borrar los datos de ejemplo guardados en este navegador?")) { reiniciarMock(); pintar(); } } }, "Reiniciar datos de ejemplo")) : "");
+        h("br"), h("small", {}, new Date(e.creado).toLocaleString("es-AR", { hour12: false }))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
+      MODO_DEV ? panelDev(pintar) : "");
   };
   pintar();
   // Si la cola cambia (reintento automático, vuelve la señal), se actualiza la lista.
   const quitar = alCambiar(() => { if (location.hash.startsWith("#/envios")) pintar(); else quitar(); });
+}
+
+// Panel solo para desarrollo: aparece con ?dev=1 en la URL. Muestra el modo y los payloads «enviados».
+function panelDev(repintar) {
+  const enviados = listarEnviadosSimulados();
+  return h("details", { class: "panel-dev", open: true, id: "panel-dev" }, h("summary", {}, "Herramientas de desarrollo"),
+    h("p", { class: "modo" }, "Envío: ", h("span", { class: "etiqueta-modo" }, CONFIG.MODO_ENVIO), ` · API_BASE ${CONFIG.API_BASE} · catálogos ${CONFIG.MOCK ? "de ejemplo" : "del backend"}`),
+    h("label", { class: "casilla" }, h("input", { type: "checkbox", id: "sim-sin-senal", checked: localStorage.getItem("hys_simular_sin_senal") === "1",
+      onchange: (ev) => { localStorage.setItem("hys_simular_sin_senal", ev.target.checked ? "1" : "0"); } }), h("span", {}, "Simular sin señal")),
+    h("div", { class: "acciones" },
+      h("button", { type: "button", class: "btn chico", onclick: () => { if (confirm("¿Borrar los datos de ejemplo guardados en este navegador?")) { reiniciarMock(); repintar(); } } }, "Reiniciar datos de ejemplo"),
+      h("button", { type: "button", class: "btn chico", onclick: () => { borrarEnviadosSimulados(); repintar(); } }, "Borrar «enviados» simulados")),
+    h("h3", {}, `Payloads «enviados» (modo simulado): ${enviados.length}`),
+    enviados.map((x, i) => h("details", { class: "payload", open: i === 0 },
+      h("summary", {}, `${x.respuesta.name} · ${x.endpoint} · ${new Date(x.recibido).toLocaleString("es-AR", { hour12: false })}`),
+      h("pre", { class: "payload-json" }, `Idempotency-Key: ${x.idempotency_key}\n\n${JSON.stringify(x.cuerpo, null, 2)}`))));
 }
 
 window.addEventListener("hashchange", rutear);

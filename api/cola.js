@@ -2,92 +2,159 @@
 //
 // Cada envío se guarda en el celular ANTES de intentar mandarlo. Estados visibles:
 //   "pendiente"  → «En el celular» (todavía no cuenta: «si no está en Odoo, no se hizo»)
-//   "enviado"    → «Enviado a Odoo (INS-2026-00012)»
+//   "enviado"    → «Enviado (INS-2026-00012)»
 //   "rechazado"  → «Rechazado: motivo» (error de validación: no se reintenta solo)
-// Reintenta al volver la señal (evento "online"), al abrir la app y cada CONFIG.REINTENTO_MS.
-// Los reintentos usan SIEMPRE la misma idempotency_key, así el backend no duplica.
+// Reintenta al volver la señal (evento "online"), al abrir la app, cada CONFIG.REINTENTO_MS y con
+// el botón «Reintentar ahora». Los reintentos usan SIEMPRE la misma idempotency_key (creada al
+// abrir el formulario), así ni la cola ni el backend duplican.
 //
-// Esqueleto: se usa localStorage (pedido inicial). El diseño apunta a IndexedDB + Blob para
-// fotos (más espacio); el cambio queda encapsulado en leer()/guardar() de este archivo.
+// Almacenamiento: IndexedDB (base "hys-carga", almacén "cola", clave idempotency_key), porque las
+// fotos y firmas no entran en localStorage. Para que el resto de la app pueda leer sin esperar,
+// la cola se mantiene también en memoria y cada cambio se escribe en IndexedDB. Si el navegador
+// no tiene IndexedDB (raro), se usa localStorage. Lo que había en localStorage ("hys_cola", de la
+// versión anterior) se pasa a IndexedDB al arrancar.
 
 import { CONFIG } from "./config.js";
-import { crearRegistro, escribirRegistro } from "./odoo.js";
+import { crearRegistro, escribirRegistro, enviarFormulario } from "./odoo.js";
 
-const CLAVE = "hys_cola";
+const CLAVE_LS = "hys_cola";
 const oyentes = new Set();
+let cache = [];
+let listo = null;         // promesa de carga inicial
 let cadena = null;        // vuelta de envío en curso (promesa)
 let otraVuelta = false;   // alguien pidió reintentar mientras se enviaba
 
-function leer() {
-  try { return JSON.parse(localStorage.getItem(CLAVE) || "[]"); } catch (e) { return []; }
-}
-function guardar(cola) {
-  try {
-    localStorage.setItem(CLAVE, JSON.stringify(cola));
-  } catch (e) {
-    throw new Error("No hay más espacio en el celular para guardar el envío (¿muchas fotos?). Enviá lo pendiente con señal.");
-  }
-  oyentes.forEach((f) => f(cola));
+// ---------------------------------------------------------------- almacenamiento
+const idb = {
+  db: null,
+  abrir() {
+    if (!("indexedDB" in window)) return Promise.resolve(null);
+    return new Promise((ok) => {
+      const r = indexedDB.open("hys-carga", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("cola", { keyPath: "idempotency_key" });
+      r.onsuccess = () => { this.db = r.result; ok(this.db); };
+      r.onerror = () => ok(null);
+      r.onblocked = () => ok(null);
+    });
+  },
+  tx(modo, fn) {
+    return new Promise((ok, mal) => {
+      const t = this.db.transaction("cola", modo);
+      const res = fn(t.objectStore("cola"));
+      t.oncomplete = () => ok(res?.result);
+      t.onerror = () => mal(t.error);
+      t.onabort = () => mal(t.error || new Error("Transacción cancelada"));
+    });
+  },
+  todos() { return this.tx("readonly", (s) => s.getAll()); },
+  poner(e) { return this.tx("readwrite", (s) => s.put(e)); },
+  quitar(k) { return this.tx("readwrite", (s) => s.delete(k)); }
+};
+
+async function cargar() {
+  await idb.abrir();
+  let viejos = [];
+  try { viejos = JSON.parse(localStorage.getItem(CLAVE_LS) || "[]"); } catch (e) { viejos = []; }
+  if (idb.db) {
+    for (const e of viejos) await idb.poner(e); // migración desde localStorage
+    if (viejos.length) localStorage.removeItem(CLAVE_LS);
+    cache = await idb.todos();
+  } else cache = viejos;
+  cache.sort((a, b) => (a.creado < b.creado ? 1 : -1));
+  avisar();
 }
 
+async function persistir(e) {
+  if (idb.db) return idb.poner(e);
+  try { localStorage.setItem(CLAVE_LS, JSON.stringify(cache)); }
+  catch (err) { throw new Error("No hay más espacio en el celular para guardar el envío (¿muchas fotos?). Enviá lo pendiente con señal."); }
+}
+const avisar = () => oyentes.forEach((f) => f(cache));
+
+// ---------------------------------------------------------------- API
 /**
- * Agrega un envío a la cola.
- * envio = {formulario, titulo, operacion: "crear"|"escribir", modelo, valores, ids?, idempotency_key}
+ * Agrega un envío a la cola (y lo guarda en el celular antes de intentar mandarlo).
+ * envio = {formulario, titulo, idempotency_key, operacion: "enviar"|"crear"|"escribir", ...}
+ *   "enviar"  → {endpoint, cuerpo}         (F02: POST /inspecciones con el payload de Odoo)
+ *   "crear"   → {modelo, valores}          (F01, F03–F08, todavía con el guardado de ejemplo)
+ *   "escribir"→ {modelo, ids, valores}     (F07)
  */
-export function encolar(envio) {
-  const cola = leer();
-  if (cola.some((e) => e.idempotency_key === envio.idempotency_key)) return; // ya estaba (doble toque)
-  cola.unshift({ ...envio, estado: "pendiente", intentos: 0, creado: new Date().toISOString(), error: null, respuesta: null });
-  guardar(cola);
+export async function encolar(envio) {
+  await listo;
+  if (cache.some((e) => e.idempotency_key === envio.idempotency_key)) return; // ya estaba (doble toque)
+  const e = { ...envio, estado: "pendiente", intentos: 0, creado: new Date().toISOString(), error: null, respuesta: null };
+  cache.unshift(e);
+  try { await persistir(e); } catch (err) { cache.shift(); throw err; }
+  avisar();
 }
 
 /** Intenta mandar todo lo pendiente. Si ya hay una vuelta en curso, se encadena otra. */
 export function procesarCola() {
   if (cadena) { otraVuelta = true; return cadena; }
   cadena = (async () => {
+    await listo;
     try { do { otraVuelta = false; await vuelta(); } while (otraVuelta); }
     finally { cadena = null; }
-    return leer();
+    return cache;
   })();
   return cadena;
 }
 
+async function mandar(e) {
+  const op = { idempotencyKey: e.idempotency_key };
+  if (e.operacion === "enviar") return enviarFormulario(e.endpoint, e.cuerpo, op);
+  if (e.operacion === "escribir") return escribirRegistro(e.modelo, e.ids, e.valores, op);
+  return crearRegistro(e.modelo, e.valores, op);
+}
+
 async function vuelta() {
-  for (const e of leer().filter((x) => x.estado === "pendiente")) {
+  // Del más viejo al más nuevo.
+  for (const e of [...cache].reverse().filter((x) => x.estado === "pendiente")) {
     try {
-      const resp = e.operacion === "escribir"
-        ? await escribirRegistro(e.modelo, e.ids, e.valores, { idempotencyKey: e.idempotency_key })
-        : await crearRegistro(e.modelo, e.valores, { idempotencyKey: e.idempotency_key });
-      // Enviado: se descartan los valores (fotos) para liberar espacio; queda el resumen.
-      actualizar(e.idempotency_key, { estado: "enviado", respuesta: resp, error: null, valores: null, intentos: e.intentos + 1, enviado: new Date().toISOString() });
+      const resp = await mandar(e);
+      // Enviado: se descartan los datos (fotos) para liberar espacio; queda el resumen.
+      await actualizar(e.idempotency_key, { estado: "enviado", respuesta: resp, error: null, valores: null, cuerpo: null,
+        intentos: e.intentos + 1, enviado: new Date().toISOString() });
     } catch (err) {
       if (err.reintentable !== false) {
         // Sin señal o servidor caído: queda pendiente y no se sigue con el resto ahora.
-        actualizar(e.idempotency_key, { error: err.message || "Sin conexión", intentos: e.intentos + 1 });
+        await actualizar(e.idempotency_key, { error: err.message || "Sin conexión", intentos: e.intentos + 1, ultimoIntento: new Date().toISOString() });
         break;
       }
       // Rechazo de validación (4xx): no se reintenta solo; se muestra el motivo.
-      actualizar(e.idempotency_key, { estado: "rechazado", error: err.message, intentos: e.intentos + 1 });
+      await actualizar(e.idempotency_key, { estado: "rechazado", error: err.message, intentos: e.intentos + 1 });
     }
   }
 }
 
-function actualizar(clave, cambio) {
-  const cola = leer().map((e) => (e.idempotency_key === clave ? { ...e, ...cambio } : e));
-  guardar(cola);
+async function actualizar(clave, cambio) {
+  const i = cache.findIndex((e) => e.idempotency_key === clave);
+  if (i < 0) return;
+  cache[i] = { ...cache[i], ...cambio };
+  await persistir(cache[i]);
+  avisar();
 }
 
-export function listarCola() { return leer(); }
-export function contarPendientes() { return leer().filter((e) => e.estado === "pendiente").length; }
-export function buscarEnvio(clave) { return leer().find((e) => e.idempotency_key === clave); }
+export function listarCola() { return cache; }
+export function contarPendientes() { return cache.filter((e) => e.estado === "pendiente").length; }
+export function buscarEnvio(clave) { return cache.find((e) => e.idempotency_key === clave); }
 export function alCambiar(f) { oyentes.add(f); return () => oyentes.delete(f); }
 
 /** Quita de la cola los ya enviados (los pendientes no se tocan nunca desde acá). */
-export function limpiarEnviados() { guardar(leer().filter((e) => e.estado !== "enviado")); }
+export async function limpiarEnviados() {
+  const fuera = cache.filter((e) => e.estado === "enviado");
+  cache = cache.filter((e) => e.estado !== "enviado");
+  if (idb.db) for (const e of fuera) await idb.quitar(e.idempotency_key);
+  else localStorage.setItem(CLAVE_LS, JSON.stringify(cache));
+  avisar();
+}
 
-/** Arranca los reintentos automáticos. */
+/** Arranca la cola: carga lo guardado y prende los reintentos automáticos. */
 export function iniciarCola() {
+  if (listo) return listo;
+  listo = cargar();
   window.addEventListener("online", () => procesarCola());
   setInterval(() => { if (contarPendientes()) procesarCola(); }, CONFIG.REINTENTO_MS);
-  procesarCola();
+  listo.then(() => procesarCola());
+  return listo;
 }

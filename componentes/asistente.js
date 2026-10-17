@@ -95,7 +95,7 @@ export async function montarAsistente(cont, def) {
       ["Fecha y hora", "Se toma al tocar «Enviar»"]];
     return [h("h2", {}, "Revisá antes de enviar"),
       h("dl", { class: "resumen" }, filas.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v === "" || v == null ? "—" : String(v))])),
-      aviso("Hasta que no figure «Enviado a Odoo», no se hizo.", "info")];
+      aviso("Hasta que no figure «Enviado», no se hizo.", "info")];
   }
 
   function atras() {
@@ -114,11 +114,11 @@ export async function montarAsistente(cont, def) {
     e.target.disabled = true;
     const u = ctx.sesion.usuario;
     if (!u) { error = "No hay usuario elegido. Volvé al inicio y elegí quién carga."; pintar(); return; }
-    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraIso(), estado: "tiempo_agotado" };
+    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraIso(), estado: "sin_posicion" };
     auto.fecha_hora_control = ahoraIso();
     try {
       const envio = def.armar(d, auto, ctx);
-      encolar({ ...envio, formulario: def.codigo, titulo: def.titulo, idempotency_key: auto.idempotency_key });
+      await encolar({ ...envio, formulario: def.codigo, titulo: def.titulo, idempotency_key: auto.idempotency_key });
     } catch (err) { error = err.message; e.target.disabled = false; pintar(); return; }
     localStorage.removeItem(claveBorrador);
     cuerpo.replaceChildren(h("p", { class: "cargando" }, "Enviando…"));
@@ -130,7 +130,9 @@ export async function montarAsistente(cont, def) {
   function resultado(env) {
     progreso.replaceChildren();
     const caja = env?.estado === "enviado"
-      ? h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, "✅ Enviado a Odoo"), h("p", {}, `${env.respuesta.name}`))
+      ? h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, env.respuesta?.simulado ? "✅ Enviado (modo prueba)" : "✅ Enviado a Odoo"),
+        h("p", {}, `${env.respuesta.name}`),
+        env.respuesta?.simulado ? h("p", { class: "ayuda" }, "Modo prueba: los datos quedaron en este celular y no llegaron a Odoo.") : "")
       : env?.estado === "rechazado"
         ? h("div", { class: "resultado error", id: "resultado" }, h("p", { class: "grande" }, "⛔ Rechazado"), h("p", {}, env.error))
         : h("div", { class: "resultado pendiente", id: "resultado" }, h("p", { class: "grande" }, "📱 Guardado en el celular"),

@@ -82,7 +82,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px soli
 .nav-pasos .btn { flex: 1; }
 .chip-gps { font-size: .85rem; padding: .35rem .6rem; border-radius: 8px; margin: .3rem 0 .6rem; background: var(--info-claro); display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .chip-gps.ok { background: var(--ok-claro); }
-.chip-gps.denegado, .chip-gps.no_disponible, .chip-gps.tiempo_agotado, .chip-gps.sin_soporte { background: var(--alerta-claro); }
+.chip-gps.denegado, .chip-gps.no_disponible, .chip-gps.sin_posicion { background: var(--alerta-claro); }
 
 /* Campos */
 .campo { margin: 0 0 1.1rem; }
@@ -148,3 +148,22 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 .lista-envios small { color: var(--gris); }
 .panel-dev { margin-top: 1.5rem; padding: .8rem; border: 1px dashed var(--borde); border-radius: 10px; }
 .panel-dev summary { font-weight: 700; cursor: pointer; min-height: 40px; }
+
+/* Ingreso (login), salir, pendientes en inicio y panel de desarrollo */
+.salir { text-decoration: none; font-size: .85rem; font-weight: 700; border: 1px solid rgba(255,255,255,.6); border-radius: 999px; padding: .3rem .6rem; }
+.ingreso-marca { text-align: center; margin: .5rem 0 1rem; }
+.ingreso-marca b { display: block; font-size: 1.6rem; color: var(--marca); }
+.ingreso-marca span { color: var(--gris); }
+.pasos-ingreso { display: flex; gap: .4rem; justify-content: center; margin-bottom: 1rem; font-size: .9rem; color: var(--gris); }
+.pasos-ingreso .activo { color: var(--marca); font-weight: 800; }
+.btn-lista small { color: var(--gris); font-weight: 400; }
+.caja-pendientes { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+.comentario-item summary { min-height: 40px; display: flex; align-items: center; color: var(--marca); font-weight: 600; cursor: pointer; }
+.panel-dev pre { white-space: pre-wrap; word-break: break-all; font-size: .72rem; background: #0b1220; color: #e5edff; padding: .6rem; border-radius: 8px; max-height: 60vh; overflow: auto; }
+.panel-dev .modo { font-size: .85rem; }
+.etiqueta-modo { display: inline-block; font-size: .75rem; font-weight: 700; background: var(--alerta-claro); border-radius: 6px; padding: .1rem .4rem; }
+.buscador-obras { margin-bottom: .3rem; }
+.lista-obras { max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.lista-obras .btn-lista { text-align: left; }
+.num-proyecto { color: var(--gris); font-weight: 400; }
+.obra-elegida p { margin: .2rem 0 .5rem; color: var(--ok); }

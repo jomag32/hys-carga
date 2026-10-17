@@ -51,10 +51,10 @@ export default {
   armar: (d, auto) => {
     // El desvío ya tiene sus datos de creación: los campos de control del CIERRE van con
     // prefijo x_cierre_ (x_cierre_idempotency_key está en el diseño; x_cierre_gps_*,
-    // x_cierre_cargado_por_* son nuevos). La fecha y hora del control es x_fecha_cierre.
+    // «quién cerró» va en x_cerrado_por (char, §2.15)). La fecha y hora del control es x_fecha_cierre.
     const control = Object.fromEntries(Object.entries(camposControl(auto))
       .filter(([k]) => k !== "x_fecha_hora_control")
-      .map(([k, v]) => [k.replace(/^x_/, "x_cierre_"), v]));
+      .map(([k, v]) => [k === "x_cargado_por" ? "x_cerrado_por" : k.replace(/^x_/, "x_cierre_"), v]));
     return {
       operacion: "escribir",
       modelo: "x_hys_desvio",

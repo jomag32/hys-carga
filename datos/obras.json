@@ -1,0 +1,8 @@
+[
+  {"id":101,"name":"OT 9101 - Galpón Ejemplo Norte","ot":"9101","partner_id":[901,"Cliente Ejemplo A"],"user_id":[201,"Director de Obra Ejemplo 1"],"x_mock_km":35},
+  {"id":102,"name":"OT 9102 - Cubierta Ejemplo Sur","ot":"9102","partner_id":[901,"Cliente Ejemplo A"],"user_id":[201,"Director de Obra Ejemplo 1"],"x_mock_km":35},
+  {"id":103,"name":"OT 9103 - Estructura Ejemplo Lejana","ot":"9103","partner_id":[902,"Cliente Ejemplo B"],"user_id":[201,"Director de Obra Ejemplo 1"],"x_mock_km":120},
+  {"id":104,"name":"OT 9104 - Entrepiso Ejemplo","ot":"9104","partner_id":[903,"Cliente Ejemplo C"],"user_id":[202,"Director de Obra Ejemplo 2"],"x_mock_km":15},
+  {"id":105,"name":"OT 9105 - Aireadores Ejemplo","ot":"9105","partner_id":[901,"Cliente Ejemplo A"],"user_id":[201,"Director de Obra Ejemplo 1"],"x_mock_km":35},
+  {"id":106,"name":"OT 9106 - Portones Ejemplo","ot":"9106","partner_id":[901,"Cliente Ejemplo A"],"user_id":[201,"Director de Obra Ejemplo 1"],"x_mock_km":35}
+]

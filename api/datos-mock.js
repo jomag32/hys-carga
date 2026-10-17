@@ -126,13 +126,16 @@ export const CONTROLES_LEGALES = [
 // ---- Datos de prueba (ficticios, de la simulación) ----
 
 // project.project · OT activas. km = distancia a Posadas (> 50 km: puede alternar presencial/remota).
+// project.project «en obra» · EJEMPLOS ficticios (el repo es público: los nombres reales de proyectos y
+// clientes NO se suben; los sirve el backend desde Odoo con GET /api/obras, decisión D-05).
+// Mismos datos que datos/obras.json. x_mock_km es solo del ejemplo (distancia para la modalidad remota).
 export const OBRAS = [
-  {id: 9101, name: "OT 9101 · Galpón Ejemplo Norte", partner_id: [101, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
-  {id: 9102, name: "OT 9102 · Cubierta Ejemplo Sur", partner_id: [101, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
-  {id: 9103, name: "OT 9103 · Estructura Ejemplo Lejana", partner_id: [102, "Cliente Ejemplo B"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 120},
-  {id: 9104, name: "OT 9104 · Entrepiso Ejemplo", partner_id: [103, "Cliente Ejemplo C"], user_id: [202, "Director de Obra Ejemplo 2"], x_mock_km: 15},
-  {id: 9105, name: "OT 9105 · Aireadores Ejemplo", partner_id: [101, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
-  {id: 9106, name: "OT 9106 · Portones Ejemplo", partner_id: [101, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35}
+  {id: 101, name: "OT 9101 - Galpón Ejemplo Norte", ot: "9101", partner_id: [901, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
+  {id: 102, name: "OT 9102 - Cubierta Ejemplo Sur", ot: "9102", partner_id: [901, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
+  {id: 103, name: "OT 9103 - Estructura Ejemplo Lejana", ot: "9103", partner_id: [902, "Cliente Ejemplo B"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 120},
+  {id: 104, name: "OT 9104 - Entrepiso Ejemplo", ot: "9104", partner_id: [903, "Cliente Ejemplo C"], user_id: [202, "Director de Obra Ejemplo 2"], x_mock_km: 15},
+  {id: 105, name: "OT 9105 - Aireadores Ejemplo", ot: "9105", partner_id: [901, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35},
+  {id: 106, name: "OT 9106 - Portones Ejemplo", ot: "9106", partner_id: [901, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35}
 ];
 
 // hr.employee · x_mock_roles es solo del mock (para filtrar listas); en Odoo saldrá de grupos/puestos.
@@ -150,21 +153,21 @@ export const EMPLEADOS = [
   {id: 21, name: "Jorge Garay", job_title: "COO", x_mock_roles: []}
 ];
 
-// x_hys_ficha · Fichas ya aprobadas (la 9104 no tiene: solo entran los 6 ítems generales en F02).
+// x_hys_ficha · Fichas ya aprobadas (la OT 9104 no tiene: solo entran los 6 ítems generales en F02).
 export const FICHAS = [
-  {id: 1, x_name: "FR-OT-9101", x_ot_id: [9101, "OT 9101 · Galpón Ejemplo Norte"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [1, 2, 3, 9], x_clase_riesgo: "A", x_clase_motivo: "Riesgo crítico: Esqueleto / Montaje en curso (izaje, altura, soldadura)"},
-  {id: 2, x_name: "FR-OT-9102", x_ot_id: [9102, "OT 9102 · Cubierta Ejemplo Sur"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [1, 8], x_clase_riesgo: "A", x_clase_motivo: "Riesgo crítico: Zinguería en curso (altura)"},
-  {id: 3, x_name: "FR-OT-9103", x_ot_id: [9103, "OT 9103 · Estructura Ejemplo Lejana"], x_estado: "aprobada", x_distancia_km: 120, x_riesgo_ids: [7, 2, 1, 3], x_clase_riesgo: "A", x_clase_motivo: "Esqueleto / Montaje arranca en los próximos 7 días"},
-  {id: 4, x_name: "FR-OT-9105", x_ot_id: [9105, "OT 9105 · Aireadores Ejemplo"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [7, 9], x_clase_riesgo: "B", x_clase_motivo: "Solo hitos de riesgo medio (Piso)"},
-  {id: 5, x_name: "FR-OT-9106", x_ot_id: [9106, "OT 9106 · Portones Ejemplo"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [9], x_clase_riesgo: "C", x_clase_motivo: "Obra fina, sin hitos de riesgo crítico ni medio"}
+  {id: 1, x_name: "FR-OT-101", x_ot_id: [101, "OT 9101 - Galpón Ejemplo Norte"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [1, 2, 3, 9], x_clase_riesgo: "A", x_clase_motivo: "Riesgo crítico: Esqueleto / Montaje en curso (izaje, altura, soldadura)"},
+  {id: 2, x_name: "FR-OT-102", x_ot_id: [102, "OT 9102 - Cubierta Ejemplo Sur"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [1, 8], x_clase_riesgo: "A", x_clase_motivo: "Riesgo crítico: Zinguería en curso (altura)"},
+  {id: 3, x_name: "FR-OT-103", x_ot_id: [103, "OT 9103 - Estructura Ejemplo Lejana"], x_estado: "aprobada", x_distancia_km: 120, x_riesgo_ids: [7, 2, 1, 3], x_clase_riesgo: "A", x_clase_motivo: "Esqueleto / Montaje arranca en los próximos 7 días"},
+  {id: 4, x_name: "FR-OT-105", x_ot_id: [105, "OT 9105 - Aireadores Ejemplo"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [7, 9], x_clase_riesgo: "B", x_clase_motivo: "Solo hitos de riesgo medio (Piso)"},
+  {id: 5, x_name: "FR-OT-106", x_ot_id: [106, "OT 9106 - Portones Ejemplo"], x_estado: "aprobada", x_distancia_km: 35, x_riesgo_ids: [9], x_clase_riesgo: "C", x_clase_motivo: "Obra fina, sin hitos de riesgo crítico ni medio"}
 ];
 
 // x_hys_desvio · Desvíos abiertos de prueba (para F07).
 export const DESVIOS = [
   {id: 1, x_name: "D-00001", x_origen_formulario: "F03", x_ambito: "fabrica", x_sector: "corte_laser", x_descripcion: "Cabina del láser abierta con el equipo en marcha", x_criticidad: "critico", x_estado: "abierto", x_fecha_deteccion: "2026-10-21T10:00:00-03:00", x_responsable_id: [216, "Jefe de Producción Ejemplo"]},
   {id: 2, x_name: "D-00002", x_origen_formulario: "F03", x_ambito: "fabrica", x_sector: "estructura_soldadura", x_descripcion: "Cilindro de oxígeno sin cadena de sujeción", x_criticidad: "mayor", x_estado: "abierto", x_fecha_deteccion: "2026-10-21T10:00:00-03:00", x_responsable_id: [216, "Jefe de Producción Ejemplo"]},
-  {id: 3, x_name: "D-00003", x_origen_formulario: "F02", x_ambito: "obra", x_ot_id: [9103, "OT 9103 · Estructura Ejemplo Lejana"], x_descripcion: "Eslinga con alambres cortados en uso", x_criticidad: "mayor", x_estado: "abierto", x_fecha_deteccion: "2026-10-21T11:00:00-03:00", x_responsable_id: [201, "Director de Obra Ejemplo 1"]},
-  {id: 4, x_name: "D-00004", x_origen_formulario: "F02", x_ambito: "obra", x_ot_id: [9101, "OT 9101 · Galpón Ejemplo Norte"], x_descripcion: "Acopio de chapas sobre la vía de circulación", x_criticidad: "menor", x_estado: "abierto", x_fecha_deteccion: "2026-10-20T09:00:00-03:00", x_responsable_id: [201, "Director de Obra Ejemplo 1"]}
+  {id: 3, x_name: "D-00003", x_origen_formulario: "F02", x_ambito: "obra", x_ot_id: [103, "OT 9103 - Estructura Ejemplo Lejana"], x_descripcion: "Eslinga con alambres cortados en uso", x_criticidad: "mayor", x_estado: "abierto", x_fecha_deteccion: "2026-10-21T11:00:00-03:00", x_responsable_id: [201, "Director de Obra Ejemplo 1"]},
+  {id: 4, x_name: "D-00004", x_origen_formulario: "F02", x_ambito: "obra", x_ot_id: [101, "OT 9101 - Galpón Ejemplo Norte"], x_descripcion: "Acopio de chapas sobre la vía de circulación", x_criticidad: "menor", x_estado: "abierto", x_fecha_deteccion: "2026-10-20T09:00:00-03:00", x_responsable_id: [201, "Director de Obra Ejemplo 1"]}
 ];
 
 // x_turno en x_hys_ats es «selection a definir» (diseño §2.13 y pregunta abierta §7.4 #7).
@@ -174,50 +177,17 @@ export const TURNOS = [
   {codigo: "tarde", nombre: "Tarde", inicio: "14:00"}
 ];
 
-// ---- Usuarios locales de hys-carga (decisión de Jorge Garay, 17/10/2026) ----
-// hys-carga mantiene SU PROPIA lista de usuarios por obra (nombre y rol): no hay un usuario
-// de Odoo por operario. Al entrar, la persona se elige de la lista de la obra seleccionada.
-// Todo lo que se escribe en Odoo pasa por UNA cuenta de servicio, del lado del servidor
-// (backend de Render); el celular nunca tiene credenciales de Odoo.
-// Clave "planta": lugares sin OT (Fábrica, Oficina, Depósito Central, Logística y Mantenimiento).
+// ---- Lugar sin OT (Fábrica, Oficina, Depósito Central, Logística y Mantenimiento) ----
 export const LUGAR_PLANTA = {id: "planta", name: "Planta · Fábrica, Oficina, Depósito y Logística"};
 
-export const USUARIOS_LOCALES = {
-  9101: [
-    {id: "u-9101-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9101-2", nombre: "Capataz OT 9101", rol: "Capataz"},
-    {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"},
-    {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"}
-  ],
-  9102: [
-    {id: "u-9102-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9102-2", nombre: "Capataz OT 9102", rol: "Capataz"},
-    {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"}
-  ],
-  9103: [
-    {id: "u-9103-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-9103-2", nombre: "Capataz OT 9103", rol: "Capataz"},
-    {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"}
-  ],
-  9104: [
-    {id: "u-9104-1", nombre: "Director de Obra Ejemplo 2", rol: "Director de Obra"},
-    {id: "u-9104-2", nombre: "Capataz OT 9104", rol: "Capataz"},
-    {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"}
-  ],
-  9105: [
-    {id: "u-9105-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"}
-  ],
-  9106: [
-    {id: "u-9106-1", nombre: "Director de Obra Ejemplo 1", rol: "Director de Obra"},
-    {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"}
-  ],
-  planta: [
-    {id: "u-hys-1", nombre: "Gerente HyS Ejemplo", rol: "Gerente HyS"},
-    {id: "u-hys-2", nombre: "Inspector HyS Ejemplo", rol: "HyS"},
-    {id: "u-pl-1", nombre: "Jefe de Producción Ejemplo", rol: "Jefe de Producción"},
-    {id: "u-pl-2", nombre: "Encargado Depósito Ejemplo", rol: "Encargado Depósito Central"},
-    {id: "u-pl-3", nombre: "Gerencia de Stock Ejemplo", rol: "Gerencia de Stock"},
-    {id: "u-pl-4", nombre: "Gerencia de Logística Ejemplo", rol: "Gerencia de Logística"}
-  ]
-};
+// Los usuarios de carga YA NO están acá: son la lista fija datos/usuarios.json (D-04 revisada, §2.15).
+
+// project.milestone · hitos de prueba por OT (nombres de la plantilla, diseño §2.6).
+// x_riesgo_hys: critico | medio | bajo. En F02 «Inicio de hito crítico (72 h)» lista los críticos de la OT.
+const HITOS_PLANTILLA = [
+  ["Excavaciones", "critico"], ["Fundaciones", "medio"], ["Esqueleto / Montaje", "critico"], ["Zinguería", "critico"],
+  ["Techado y aislación", "critico"], ["Cerramiento lateral y aberturas", "medio"], ["Piso", "medio"], ["Obra fina", "bajo"]
+];
+export const HITOS = OBRAS.flatMap((o, i) => HITOS_PLANTILLA.map(([name, riesgo], j) => ({
+  id: 1000 + i * 10 + j, name, project_id: [o.id, o.name], x_riesgo_hys: riesgo
+})));
