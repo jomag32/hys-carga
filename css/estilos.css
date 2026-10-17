@@ -18,7 +18,8 @@ a { color: inherit; }
 .encabezado { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: .5rem; padding: .5rem .75rem;
   padding-top: max(.5rem, env(safe-area-inset-top)); background: var(--verde); color: #fff; }
 .marca { font-weight: 800; text-decoration: none; font-size: 1.1rem; white-space: nowrap; }
-.marca span { font-weight: 400; opacity: .85; }
+.marca { line-height: 1.1; }
+.marca span { display: block; font-size: .68rem; font-weight: 400; opacity: .9; }
 .contexto { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .contexto .dato { text-decoration: none; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0; }
 .pendientes { text-decoration: none; background: rgba(255,255,255,.15); border-radius: 999px; padding: .3rem .6rem; font-weight: 700; }
