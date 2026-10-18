@@ -1,7 +1,7 @@
 // Campos automáticos de control (diseño §1.3, §5.1, §5.2 y decisiones del 17/10/2026).
 // Los toma el celular; nadie los escribe a mano:
 //   · idempotency key: UUID v4 creado AL ABRIR el formulario (no al enviar); reintentos la reusan.
-//   · fecha y hora del control: al tocar «Enviar», en ISO 8601 con zona -03:00.
+//   · fecha y hora del control: al tocar «Enviar», en UTC real (ISO 8601 con «Z»).
 //   · GPS (decisión D-03): se pide al cargar el formulario; viaja con lat, lon, precisión y
 //     fecha de captura. Si se niega o no hay GPS, se envía igual con coordenadas vacías y una
 //     marca (x_gps_estado) que explica por qué.
@@ -20,12 +20,35 @@ export function nuevaClaveIdempotencia() {
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
 }
 
-/** Fecha y hora local con zona: 2026-10-23T09:30:00-03:00 */
+/**
+ * Instante actual (o `fecha`) en UTC real, ISO 8601: "2026-10-23T12:30:00.000Z".
+ * Se usa para los campos de control (x_fecha_hora_control, x_gps_fecha): NO depende de la zona
+ * horaria configurada en el celular. odoo.js lo pasa a "AAAA-MM-DD HH:MM:SS" (UTC) para Odoo.
+ */
+export const ahoraUtc = (fecha = new Date()) => new Date(fecha).toISOString();
+
+// Partes de fecha y hora en la zona de Argentina (sin depender de la zona del celular).
+const PARTES_AR = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CONFIG.ZONA_IANA, year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+});
+
+/**
+ * Hora de pared de Argentina con zona: 2026-10-23T09:30:00-03:00 (mismo instante que ahoraUtc).
+ * Para valores por defecto de formularios (fecha de hoy, datetime-local) y textos.
+ * Argentina no tiene horario de verano: -03:00 fijo (CONFIG.ZONA_HORARIA).
+ */
 export function ahoraIso(fecha = new Date()) {
-  const p = (n) => String(n).padStart(2, "0");
-  return `${fecha.getFullYear()}-${p(fecha.getMonth() + 1)}-${p(fecha.getDate())}` +
-    `T${p(fecha.getHours())}:${p(fecha.getMinutes())}:${p(fecha.getSeconds())}${CONFIG.ZONA_HORARIA}`;
+  const p = Object.fromEntries(PARTES_AR.formatToParts(new Date(fecha)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${CONFIG.ZONA_HORARIA}`;
 }
+
+const MOSTRAR_AR = new Intl.DateTimeFormat("es-AR", {
+  timeZone: CONFIG.ZONA_IANA, day: "2-digit", month: "2-digit", year: "numeric",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+});
+/** Para mostrar: "18/10/2026, 09:12:28" en hora de Argentina, sin importar la zona del celular. */
+export const mostrarFechaHora = (iso) => MOSTRAR_AR.format(new Date(iso));
 export const hoyIso = () => ahoraIso().slice(0, 10);
 
 /**
@@ -35,13 +58,13 @@ export const hoyIso = () => ahoraIso().slice(0, 10);
  *   "no_disponible" Navegador sin geolocalización.
  */
 export function tomarGps({ timeout = 15000 } = {}) {
-  const vacio = (estado) => ({ lat: null, lon: null, precision: null, fecha: ahoraIso(), estado });
+  const vacio = (estado) => ({ lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado });
   if (!("geolocation" in navigator)) return Promise.resolve(vacio("no_disponible"));
   return new Promise((ok) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => ok({
         lat: pos.coords.latitude, lon: pos.coords.longitude,
-        precision: Math.round(pos.coords.accuracy), fecha: ahoraIso(new Date(pos.timestamp)), estado: "ok"
+        precision: Math.round(pos.coords.accuracy), fecha: ahoraUtc(new Date(pos.timestamp)), estado: "ok"
       }),
       (err) => ok(vacio(err.code === 1 ? "denegado" : "sin_posicion")),
       { enableHighAccuracy: true, timeout, maximumAge: 60000 }

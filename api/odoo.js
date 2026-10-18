@@ -159,7 +159,7 @@ export function aFormatoOdoo(vals) {
   }
   return out;
 }
-/** "2026-10-17T18:46:00-03:00" → "2026-10-17 21:46:00" (UTC, como guarda Odoo los datetime). */
+/** "2026-10-17T21:46:00.000Z" o "2026-10-17T18:46:00-03:00" → "2026-10-17 21:46:00" (UTC, como guarda Odoo los datetime). */
 export function fechaOdoo(iso) {
   const d = new Date(iso);
   return isNaN(d) ? iso : d.toISOString().slice(0, 19).replace("T", " ");

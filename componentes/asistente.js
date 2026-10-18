@@ -17,7 +17,7 @@
 
 import { h } from "./util.js";
 import { aviso } from "./campos.js";
-import { nuevaClaveIdempotencia, tomarGps, ahoraIso, TEXTO_GPS } from "./campos-auto.js";
+import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { encolar, procesarCola, buscarEnvio } from "../api/cola.js";
 
@@ -78,13 +78,38 @@ export async function montarAsistente(cont, def) {
       h("div", { class: "barra" }, h("div", { class: "relleno", style: `width:${Math.round((i / ps.length) * 100)}%` })),
       h("p", {}, enRevision ? "Revisión final" : `Paso ${i + 1} de ${ps.length} · ${ps[i].titulo}`));
     const contenido = enRevision ? revision(ps) : [h("h2", {}, ps[i].titulo), ps[i].dibujar(d, ctx)];
-    cuerpo.replaceChildren(...[contenido].flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false && x !== ""), error ? aviso(error, "error") : "");
+    const cajaError = error ? aviso(error, "error") : null;
+    cuerpo.replaceChildren(...[contenido].flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false && x !== ""), cajaError || "");
     nav.replaceChildren(
       h("button", { type: "button", class: "btn secundario", onclick: atras }, i === 0 ? "Salir" : "← Atrás"),
       enRevision
         ? h("button", { type: "button", class: "btn primario", id: "btn-enviar", onclick: enviar }, "Enviar ✓")
         : h("button", { type: "button", class: "btn primario", id: "btn-siguiente", onclick: siguiente }, "Siguiente →"));
     window.scrollTo(0, 0);
+    if (cajaError) mostrarError(cajaError);
+  }
+
+  // Validación fallida: el aviso queda al final del paso y la barra de botones de abajo es fija.
+  // Se lleva el aviso a la vista (por encima de la barra), se anuncia (role=alert) y se enfoca
+  // el primer campo marcado como inválido si lo hay; si no, el propio aviso.
+  function mostrarError(caja) {
+    caja.setAttribute("role", "alert");
+    caja.setAttribute("tabindex", "-1");
+    caja.id = "error-paso";
+    const suave = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      const r = caja.getBoundingClientRect();
+      const barra = nav.getBoundingClientRect().height || 0;
+      const libre = window.innerHeight - barra;            // alto visible sin la barra fija
+      const margen = 16;
+      // Si el aviso no entra entero en el espacio libre, se lo ubica justo arriba de la barra.
+      if (r.top < margen || r.bottom > libre - margen) {
+        const destino = window.scrollY + r.bottom - (libre - margen);
+        window.scrollTo({ top: Math.max(0, destino), behavior: suave ? "smooth" : "auto" });
+      }
+      const campo = cuerpo.querySelector("[aria-invalid='true']");
+      (campo || caja).focus({ preventScroll: true });
+    });
   }
 
   function revision() {
@@ -114,8 +139,8 @@ export async function montarAsistente(cont, def) {
     e.target.disabled = true;
     const u = ctx.sesion.usuario;
     if (!u) { error = "No hay usuario elegido. Volvé al inicio y elegí quién carga."; pintar(); return; }
-    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraIso(), estado: "sin_posicion" };
-    auto.fecha_hora_control = ahoraIso();
+    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado: "sin_posicion" };
+    auto.fecha_hora_control = ahoraUtc(); // UTC real, sin depender de la zona del celular
     try {
       const envio = def.armar(d, auto, ctx);
       await encolar({ ...envio, formulario: def.codigo, titulo: def.titulo, idempotency_key: auto.idempotency_key });

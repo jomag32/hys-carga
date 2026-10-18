@@ -33,6 +33,7 @@ export const CONFIG = {
   // sirve el backend desde Odoo y NUNCA se suben a GitHub. Acá solo hay ejemplos (datos/obras.json).
   OBRAS_URLS: ["datos/obras.local.json", "datos/obras.json"],
   ZONA_HORARIA: "-03:00",           // America/Argentina/Buenos_Aires (las fechas viajan con zona)
+  ZONA_IANA: "America/Argentina/Buenos_Aires", // para mostrar y calcular la hora de Argentina sin depender del celular
   REINTENTO_MS: 30000,              // cada cuánto se reintenta la cola si hay pendientes
   FOTO_LADO_MAX: 1600,              // px; el diseño pide ≤ 1600 px y < 500 KB (§5.3)
   FOTO_CALIDAD: 0.7

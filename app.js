@@ -9,7 +9,7 @@ import { montarAsistente } from "./componentes/asistente.js";
 import { aviso } from "./componentes/campos.js";
 import { leerUsuariosLocales, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
-import { ahoraIso } from "./componentes/campos-auto.js";
+import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
@@ -111,7 +111,7 @@ function vistaEnvios() {
         h("b", {}, `HYS-${e.formulario} · ${e.titulo}`), h("br"),
         h("span", {}, ESTADO[e.estado], e.estado === "enviado" ? ` (${e.respuesta.name})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
         e.estado === "pendiente" && e.error ? h("small", {}, ` · último intento: ${e.error}`) : "",
-        h("br"), h("small", {}, new Date(e.creado).toLocaleString("es-AR", { hour12: false }))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
+        h("br"), h("small", {}, mostrarFechaHora(e.creado))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
       MODO_DEV ? panelDev(pintar) : "");
   };
   pintar();
@@ -131,7 +131,7 @@ function panelDev(repintar) {
       h("button", { type: "button", class: "btn chico", onclick: () => { borrarEnviadosSimulados(); repintar(); } }, "Borrar «enviados» simulados")),
     h("h3", {}, `Payloads «enviados» (modo simulado): ${enviados.length}`),
     enviados.map((x, i) => h("details", { class: "payload", open: i === 0 },
-      h("summary", {}, `${x.respuesta.name} · ${x.endpoint} · ${new Date(x.recibido).toLocaleString("es-AR", { hour12: false })}`),
+      h("summary", {}, `${x.respuesta.name} · ${x.endpoint} · ${mostrarFechaHora(x.recibido)}`),
       h("pre", { class: "payload-json" }, `Idempotency-Key: ${x.idempotency_key}\n\n${JSON.stringify(x.cuerpo, null, 2)}`))));
 }
 
