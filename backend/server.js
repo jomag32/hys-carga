@@ -6,9 +6,11 @@
 //
 // Endpoints:
 //   GET  /healthz                 → {ok:true} (no toca Odoo)
-//   GET  /api/v1/obras            → [{id, name, ot, partner, director}] obras en curso (caché 5 min)
+//   GET  /api/v1/obras            → (sesión) [{id, name, ot, partner, director}] obras en curso (caché 5 min)
 //   GET  /api/v1/inspectores      → [{id, nombre, legajo, tipo, empresa}] de x_hys_inspector activos (caché 5 min)
-//   GET  /api/v1/hitos?ot=<id>    → [{id, name, fecha_limite, alcanzado}] project.milestone de la OT
+//   GET  /api/v1/fichas[?ot=<id>] → (sesión) fichas F01 activas [{id, nombre, ot, estado, clase, motivo, riesgos, hitos, …}];
+//                                   con ?ot= la de esa OT o null
+//   GET  /api/v1/hitos?ot=<id>    → (sesión) hitos de la ficha activa de la OT (x_hys_ficha_hito; ya no project.milestone)
 //   POST /api/v1/ingreso          → {inspector_id, clave} → token de sesión (contraseña por inspector, ver ingreso.js)
 //   POST /api/v1/inspecciones     → (Authorization: Bearer <token>) create de x_hys_inspeccion + líneas (idempotente; 201 nuevo, 200 repetido)
 
@@ -108,6 +110,9 @@ function leerCuerpo(req) {
 const demasiado = () => `El envío pesa más de ${Math.round(MAX_CUERPO / 1048576)} MB (fotos muy grandes). Sacá menos fotos o de menor tamaño.`;
 
 /** Error de Odoo/entrada → respuesta JSON sin credenciales ni traceback. */
+const sesionDe = (req) => ingreso.verificar(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+const sinSesion = (res) => json(res, 401, { error: "Tu sesión venció o cambió tu contraseña: tocá «Salir» y volvé a ingresar con tu contraseña.", codigo: "sesion" });
+
 function responderError(res, e, que) {
   if (e instanceof ErrorEntrada) return json(res, e.estado, { error: e.message, ...e.extra }, e.estado === 413 ? { Connection: "close" } : {});
   if (e instanceof ErrorOdoo) {
@@ -128,6 +133,11 @@ const servidor = http.createServer(async (req, res) => {
     if (ruta === "/healthz") return json(res, 200, { ok: true, servicio: "hys-carga-api" });
     if (limitado(req)) return json(res, 429, { error: "Demasiados pedidos; probá en un minuto." }, { "Retry-After": "60" });
 
+    // Catálogos con datos de obras (nombres de proyectos y clientes): solo con sesión de inspector.
+    // /api/v1/inspectores queda abierto porque es la lista para ingresar.
+    const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos"];
+    if (req.method === "GET" && SESION_GET.includes(ruta) && !sesionDe(req)) return sinSesion(res);
+
     if (ruta === "/api/v1/obras" && req.method === "GET") {
       try {
         const { obras, origen } = await leerObras();
@@ -143,6 +153,15 @@ const servidor = http.createServer(async (req, res) => {
         const r = await catalogos.leerInspectores();
         return json(res, 200, r.lista, { "X-Fuente": r.fuente });
       } catch (e) { return responderError(res, e, "inspectores"); }
+    }
+    if (ruta === "/api/v1/fichas" && req.method === "GET") {
+      const q = new URL(req.url, "http://x").searchParams.get("ot");
+      try {
+        if (q === null || q === "") return json(res, 200, await catalogos.leerFichas());
+        const ot = Number(q);
+        if (!Number.isInteger(ot) || ot <= 0) return json(res, 400, { error: "?ot=<id de la obra> inválido" });
+        return json(res, 200, await catalogos.fichaDeOt(ot)); // null = la OT no tiene ficha activa
+      } catch (e) { return responderError(res, e, "fichas"); }
     }
     if (ruta === "/api/v1/hitos" && req.method === "GET") {
       const ot = Number(new URL(req.url, "http://x").searchParams.get("ot"));
@@ -163,8 +182,8 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (ruta === "/api/v1/inspecciones" && req.method === "POST") {
       try {
-        const sesion = ingreso.verificar(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-        if (!sesion) { req.resume(); return json(res, 401, { error: "Tu sesión venció o cambió tu contraseña: tocá «Salir» y volvé a ingresar con tu contraseña.", codigo: "sesion" }); }
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await inspecciones.recibir(cuerpo, { claveCabecera: req.headers["idempotency-key"] || null, sesion });
         log(`inspecciones: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id}${r.cuerpo.descartados?.length ? ` · descartados ${r.cuerpo.descartados.join(", ")}` : ""}`);
@@ -175,7 +194,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/hitos?ot=<id>", "POST /api/v1/ingreso", "POST /api/v1/inspecciones"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "POST /api/v1/ingreso", "POST /api/v1/inspecciones"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

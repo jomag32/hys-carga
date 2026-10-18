@@ -35,7 +35,8 @@ test("«No» sin gravedad ni foto, sin inspector y clave distinta → errores", 
 });
 test("hito crítico exige hito", () => {
   const b = base(); b.odoo.vals.x_tipo_programa = "hito_critico";
-  assert.ok(validarYFiltrar(b, C).errores.some((e) => e.campo === "x_hito_id"));
+  assert.ok(validarYFiltrar(b, C).errores.some((e) => e.campo === "x_ficha_hito_id"));
+  b.odoo.vals.x_ficha_hito_id = 7; assert.ok(!validarYFiltrar(b, C).errores.some((e) => e.campo === "x_ficha_hito_id"));
 });
 test("texto del inspector", () => {
   assert.equal(textoInspector({ x_name: "Ana Pérez", x_legajo: "123", x_tipo: "interno" }), "Legajo 123 · Ana Pérez");

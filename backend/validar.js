@@ -10,7 +10,8 @@ export const PROTEGIDOS_INSPECCION = new Set([
   "id", "x_name", "x_fecha_recepcion", "x_validacion_estado", "x_validacion_comentario", "x_validacion_fecha",
   "x_validacion_solicitada", "x_validacion_vencida", "x_validador_id", "x_asignado_id", "x_linea_ids",
   "x_inspector_id",     // empleado (anterior): ya no se usa desde el celular
-  "x_inspector_texto"]); // lo arma el servidor con el registro de x_hys_inspector
+  "x_inspector_texto",   // lo arma el servidor con el registro de x_hys_inspector
+  "x_ficha_id", "x_clase_al_inspeccionar", "x_clase_motivo"]); // los copia el servidor de la Ficha activa de la OT
 export const PROTEGIDOS_LINEA = new Set(["id", "x_inspeccion_id"]);
 
 const sel = (campos, k) => (campos[k]?.selection || []).map(([v]) => v);
@@ -41,7 +42,9 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
   if (!sel(ci, "x_ambito").includes(v.x_ambito)) mal("x_ambito", "Ámbito inválido");
   if (!sel(ci, "x_tipo_programa").includes(v.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
   if (v.x_ambito === "obra" && !Number.isInteger(v.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
-  if (v.x_tipo_programa === "hito_critico" && !Number.isInteger(v.x_hito_id)) mal("x_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
+  // Hito crítico: el hito de la Ficha (x_ficha_hito_id). x_hito_id (project.milestone) solo por envíos viejos en cola.
+  if (v.x_tipo_programa === "hito_critico" && !Number.isInteger(v.x_ficha_hito_id) && !Number.isInteger(v.x_hito_id))
+    mal("x_ficha_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
   if (!Number.isInteger(v.x_inspector_hys_id)) {
     if (v.x_inspector_id !== undefined) mal("x_inspector_hys_id", "La app está desactualizada: recargá la página y volvé a elegir el inspector");
     else mal("x_inspector_hys_id", "Falta el inspector");

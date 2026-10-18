@@ -6,7 +6,7 @@ import { crearInspecciones } from "./inspecciones.js";
 // Inspectores de EJEMPLO (repo público): 2 = legajo 0001, 3 = legajo 0002, 5 = activo sin contraseña, 4 = archivado.
 const INSP = { 2: { id: 2, x_name: "Inspector Ejemplo Uno", x_legajo: "0001" }, 3: { id: 3, x_name: "Inspector Ejemplo Dos", x_legajo: "0002" },
   5: { id: 5, x_name: "Inspector Ejemplo Sin Clave", x_legajo: "0005" } };
-const catalogos = { buscarInspector: async (id) => INSP[id] || null };
+const catalogos = { buscarInspector: async (id) => INSP[id] || null, fichaDeOt: async () => null };
 // Contraseñas de EJEMPLO (las reales viven solo en Render); la primera con «ñ» compuesta (NFC).
 const ENV = { HYS_PWD_0001: "pe\u00f1a-uno", HYS_PWD_0002: "dos-ejemplo" };
 const nuevo = (env = ENV, extra = {}) => crearIngreso({ catalogos, claves: () => leerClaves(env), secreto: "secreto-de-prueba", ...extra });

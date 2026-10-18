@@ -52,7 +52,7 @@ const cuerpo = (k = clave(), fecha = "2026-10-18 12:00:00") => ({ formulario: "F
   contexto: { cargado_por_inspector_id: 10, lugar: "OT 9101" } });
 // Inspectores activos de ejemplo: 9 (el elegido en el formulario) y 10 (quien carga). 11 = archivado.
 const ACTIVOS = { 9: { id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }, 10: { id: 10, x_name: "Cargador Ejemplo", x_legajo: "2" } };
-const catalogosFalsos = { buscarInspector: async (id) => ACTIVOS[id] || null };
+const catalogosFalsos = { buscarInspector: async (id) => ACTIVOS[id] || null, fichaDeOt: async () => null };
 const conSesion = (api, sesion = { inspector_id: 10 }) => ({ ...api, recibir: (c, o = {}) => api.recibir(c, { sesion, ...o }) });
 const armar = (o) => { const f = odooFalso(o); return { ...f, api: conSesion(crearInspecciones(() => f.cliente, catalogosFalsos)) }; };
 const nombres = (db) => db.map((r) => r.x_name).sort();

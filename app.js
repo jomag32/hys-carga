@@ -69,17 +69,33 @@ function vistaInicio() {
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"));
 }
 
-// Ingreso: 1) elegir la obra, 2) elegir tu nombre de la lista de inspectores activos de HyS (Odoo, x_hys_inspector).
-// Método de acceso (PIN, enlace, etc.) PENDIENTE (§7.4 #4): hoy es solo elegir, sin contraseñas.
+// Ingreso: 1) tu nombre (inspectores activos de HyS, Odoo x_hys_inspector), 2) tu contraseña, 3) la obra.
+// La obra va al final porque la lista de obras (y sus Fichas) solo se lee con sesión (18/10/2026).
+// Con sesión vigente, #/ingresar y #/obra van directo a elegir obra (cambiar de obra sin volver a ingresar).
 function vistaIngreso() {
   const s = leerSesion();
   const d = { obra: s.obra || undefined };
   const marca = h("div", { class: "ingreso-marca" }, h("b", {}, "HyS · Tecnología ARME"), h("span", {}, "Carga de Higiene y Seguridad en obra"));
   const pasos = (n) => h("div", { class: "pasos-ingreso" },
-    h("span", { class: n === 1 ? "activo" : "" }, "1. Obra"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Quién sos"),
-    h("span", {}, "›"), h("span", { class: n === 3 ? "activo" : "" }, "3. Contraseña"));
-  // 3) contraseña propia del inspector (la verifica el backend; sin señal, la huella guardada en este celular).
-  const paso3 = (o, u) => {
+    h("span", { class: n === 1 ? "activo" : "" }, "1. Quién sos"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Contraseña"),
+    h("span", {}, "›"), h("span", { class: n === 3 ? "activo" : "" }, "3. Obra"));
+  // 1) nombre
+  const paso1 = async () => {
+    app.replaceChildren(marca, pasos(1), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
+    let usuarios = [];
+    try { usuarios = await leerUsuariosDeIngreso(); }
+    catch (e) { app.replaceChildren(marca, aviso(`No se pudo leer la lista de inspectores (${e.message}). La primera vez hace falta señal; probá de nuevo.`, "error"),
+      h("button", { type: "button", class: "btn primario", onclick: () => paso1() }, "Reintentar")); return; }
+    app.replaceChildren(marca, pasos(1), h("h1", {}, "¿Quién sos?"),
+      h("p", { class: "ayuda" }, "Inspectores de HyS activos. Elegí tu nombre: nadie carga por otro."),
+      usuarios.length ? h("div", { class: "lista-botones", id: "lista-usuarios" }, usuarios.map((u) => h("button", {
+        type: "button", class: "btn-lista", "data-usuario-id": u.id,
+        onclick: () => paso2(u)
+      }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
+      bloqueInstalar());
+  };
+  // 2) contraseña propia del inspector (la verifica el backend; sin señal, la huella guardada en este celular).
+  const paso2 = (u) => {
     const error = h("div", { id: "error-ingreso", role: "alert" });
     const campo = h("input", { type: "password", id: "clave-ingreso", class: "entrada", autocomplete: "current-password",
       autocapitalize: "off", autocorrect: "off", spellcheck: "false", enterkeyhint: "go",
@@ -89,40 +105,35 @@ function vistaIngreso() {
       boton.disabled = true; boton.textContent = "Verificando…"; error.replaceChildren();
       try {
         const r = await ingresarInspector(u.id, campo.value);
-        const { id, name, ot, partner_id, user_id, x_mock_km } = o;
-        guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km }, usuario: { ...u, token: r.token, vence: r.vence }, ingreso: ahoraIso() });
-        location.hash = "#/";
+        guardarSesion({ obra: null, usuario: { ...u, token: r.token, vence: r.vence }, ingreso: ahoraIso() });
+        paso3();
       } catch (e) {
         error.replaceChildren(aviso(e.message, "error"));
         boton.disabled = false; boton.textContent = "Ingresar"; campo.select();
       }
     };
-    app.replaceChildren(marca, pasos(3), h("h1", {}, u.nombre),
+    app.replaceChildren(marca, pasos(2), h("h1", {}, u.nombre),
       h("p", { class: "ayuda" }, [u.legajo ? `Legajo ${u.legajo}` : null, u.rol].filter(Boolean).join(" · ")),
       h("div", { class: "campo" }, h("label", { class: "etiqueta", for: "clave-ingreso" }, "Tu contraseña"), campo),
       CONFIG.OBRAS_FUENTE !== "backend" ? aviso("Modo ejemplo: la contraseña no se verifica y nada llega a Odoo.", "info") : "",
       error, boton,
-      h("button", { type: "button", class: "btn secundario", id: "btn-otro-nombre", onclick: () => paso2(o) }, "← No soy yo"));
+      h("button", { type: "button", class: "btn secundario", id: "btn-otro-nombre", onclick: () => paso1() }, "← No soy yo"));
     campo.focus();
   };
-  const paso1 = () => app.replaceChildren(marca, pasos(1), h("h1", {}, "Ingresar"),
-    selectorObra(d, "obra", { etiqueta: "¿En qué obra o lugar estás?", incluirPlanta: true, alCambiar: (o) => paso2(o) }),
-    bloqueInstalar());
-  const paso2 = async (o) => {
-    app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
-    let usuarios = [];
-    try { usuarios = await leerUsuariosDeIngreso(); }
-    catch (e) { app.replaceChildren(marca, aviso(`No se pudo leer la lista de inspectores (${e.message}). La primera vez hace falta señal; probá de nuevo.`, "error"),
-      h("button", { type: "button", class: "btn primario", onclick: () => paso2(o) }, "Reintentar"), h("button", { type: "button", class: "btn secundario", onclick: paso1 }, "← Volver")); return; }
-    app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"),
-      h("p", { class: "ayuda" }, "Inspectores de HyS activos. Elegí tu nombre: nadie carga por otro."),
-      usuarios.length ? h("div", { class: "lista-botones", id: "lista-usuarios" }, usuarios.map((u) => h("button", {
-        type: "button", class: "btn-lista", "data-usuario-id": u.id,
-        onclick: () => paso3(o, u)
-      }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
-      h("button", { type: "button", class: "btn secundario", id: "btn-cambiar-obra", onclick: paso1 }, "← Cambiar obra"));
+  // 3) obra (ya con sesión: el backend pide el token para leer obras y Fichas)
+  const paso3 = () => {
+    const u = leerSesion().usuario;
+    app.replaceChildren(marca, pasos(3), h("h1", {}, "¿En qué obra o lugar estás?"),
+      h("p", { class: "ayuda", id: "ingreso-quien" }, `Ingresaste como ${u?.nombre || ""}.`),
+      selectorObra(d, "obra", { etiqueta: "Obra o lugar", incluirPlanta: true, alCambiar: (o) => {
+        const { id, name, ot, partner_id, user_id, x_mock_km } = o;
+        guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km } });
+        location.hash = "#/";
+      } }),
+      h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
+      bloqueInstalar());
   };
-  paso1();
+  if (s.usuario) paso3(); else paso1();
 }
 
 function vistaEnvios() {

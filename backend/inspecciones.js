@@ -146,8 +146,20 @@ export function crearInspecciones(cliente, catalogos) {
       pon("x_fecha_recepcion", ahora);
       const ctx = cuerpo.contexto || {};
       if (ctx.modalidad && (ci.x_modalidad?.selection || []).some(([v]) => v === ctx.modalidad)) pon("x_modalidad", ctx.modalidad);
-      if ((ci.x_clase_al_inspeccionar?.selection || []).some(([v]) => v === ctx.clase_al_inspeccionar)) pon("x_clase_al_inspeccionar", ctx.clase_al_inspeccionar);
-      if (typeof ctx.clase_motivo === "string") pon("x_clase_motivo", ctx.clase_motivo.slice(0, 250));
+      // Ficha F01 de la OT (leída de Odoo al recibir, sin caché): ficha, clase y motivo NO salen del celular.
+      if (vals.x_ot_id) {
+        const f = await catalogos.fichaDeOt(vals.x_ot_id, { fresca: true });
+        if (f) pon("x_ficha_id", f.id);
+        const clase = f?.clase || "A";
+        if ((ci.x_clase_al_inspeccionar?.selection || []).some(([v]) => v === clase)) pon("x_clase_al_inspeccionar", clase);
+        pon("x_clase_motivo", (f ? f.motivo || `Ficha ${f.nombre || f.id} (${f.estado})` : "Sin Ficha de Riesgos: se trata como Clase A").slice(0, 250));
+        if (vals.x_tipo_programa === "hito_critico" && Number.isInteger(vals.x_ficha_hito_id)) {
+          const hito = f?.hitos.find((x) => x.id === vals.x_ficha_hito_id);
+          if (!hito) throw new ErrorEntrada(422, "El hito elegido no es de la Ficha de Riesgos activa de esta obra. Volvé a elegirlo.");
+          if (!hito.critico) throw new ErrorEntrada(422, "El hito elegido no es de riesgo crítico. Elegí un hito crítico u otro tipo de inspección.");
+        }
+      }
+      if (vals.x_tipo_programa !== "hito_critico") { delete vals.x_ficha_hito_id; delete vals.x_hito_id; }
       if (ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = PRESENCIAL_OBLIGATORIA.includes(vals.x_tipo_programa);
       const cantNo = vals.x_linea_ids.filter(([, , l]) => l.x_respuesta === "no").length;
       if (ci.x_cant_no && !ci.x_cant_no.readonly) vals.x_cant_no = cantNo;

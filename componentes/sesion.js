@@ -4,7 +4,8 @@
 // en Odoo (x_hys_inspector), servidos por GET /api/v1/inspectores. Ya no hay lista fija de usuarios.
 // El backend escribe en Odoo con la única cuenta de servicio MIA; cada registro lleva x_cargado_por
 // («Legajo N · Nombre · Inspector HyS · OT»), que arma y verifica el backend con el inspector activo.
-// «Ingresar» es elegir obra y después tu nombre; sin PIN ni contraseña (método de acceso PENDIENTE, §7.4 #4).
+// «Ingresar»: tu nombre → tu contraseña (por legajo, la verifica el backend y da un token de sesión) → la obra.
+// Obras y Fichas solo se leen con ese token.
 // La sesión vive en localStorage ("hys_sesion").
 
 const CLAVE = "hys_sesion";

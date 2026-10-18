@@ -43,6 +43,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px soli
 .contexto .dato { text-decoration: none; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0; }
 .pendientes { text-decoration: none; background: rgba(255,255,255,.15); border-radius: 999px; padding: .3rem .6rem; font-weight: 700; }
 .pendientes.hay { background: #facc15; color: #000; }
+/* Zonas de toque de al menos 44 × 44 px en el encabezado (guía de accesibilidad móvil). */
+.marca, .pendientes, .salir { min-height: 44px; min-width: 44px; display: inline-flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; }
+.marca { align-items: flex-start; }
+.contexto a.dato { min-height: 44px; display: flex; align-items: center; padding: 0; }
+.contexto span.dato { font-size: .78rem; opacity: .95; margin-top: -8px; }
+.avisos-ficha { display: flex; flex-wrap: wrap; gap: .4rem; }
+.etiqueta-aviso { background: #fde68a; color: #000; border-radius: 999px; padding: .15rem .55rem; font-weight: 700; font-size: .85rem; }
 
 .contenido { max-width: 720px; margin: 0 auto; padding: 1rem .9rem 7rem; }
 .cargando { color: var(--gris); }
@@ -73,8 +80,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px soli
 /* Formulario por pasos */
 .form-titulo { display: flex; flex-direction: column; }
 .form-titulo .codigo { font-size: .85rem; font-weight: 800; color: var(--marca); letter-spacing: .05em; }
-.form-titulo h1 { margin-top: 0; }
-.progreso p { margin: .3rem 0 1rem; color: var(--gris); font-size: .95rem; }
+.form-titulo h1 { margin: 0 0 .3rem; font-size: 1.35rem; }
+.progreso p { margin: .3rem 0 .6rem; color: var(--gris); font-size: .95rem; }
 .barra { height: 8px; background: var(--borde); border-radius: 99px; overflow: hidden; }
 .relleno { height: 100%; background: var(--marca); transition: width .2s; }
 .nav-pasos { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: .6rem; padding: .7rem .9rem;

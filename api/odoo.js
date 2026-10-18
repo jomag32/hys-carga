@@ -17,6 +17,7 @@
 
 import { CONFIG } from "./config.js";
 import * as M from "./datos-mock.js";
+import { leerSesion } from "../componentes/sesion.js";
 
 // ---------------------------------------------------------------- API pública (catálogos y F01, F03–F08)
 
@@ -114,11 +115,14 @@ let obrasEnCurso = null;
 /** De dónde salió la última lista: {origen: "backend"|"ejemplo"|"copia", fecha}. */
 export const estadoObras = { origen: null, fecha: null };
 
-/** GET de un catálogo del backend (con espera larga: el plan free de Render tarda en despertar). */
+/** GET de un catálogo del backend (con espera larga: el plan free de Render tarda en despertar).
+ *  Obras, Fichas e hitos piden la sesión del inspector (Authorization: Bearer <token>). */
 async function leerDelBackend(ruta) {
   let r;
+  const token = leerSesion().usuario?.token;
   try {
-    r = await fetch(`${CONFIG.API_V1}${ruta}`, { cache: "no-store", signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
+    r = await fetch(`${CONFIG.API_V1}${ruta}`, { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
   } catch (e) {
     throw new ErrorApi(e?.name === "TimeoutError" ? "El servidor tardó demasiado en responder" : "Sin conexión con el servidor", 0);
   }
@@ -128,18 +132,25 @@ async function leerDelBackend(ruta) {
 }
 const obrasDelBackend = () => leerDelBackend("/obras");
 
-/** Lee un catálogo y guarda copia; sin señal usa la última copia REAL (nunca ejemplos en producción). */
+/** Lee un catálogo y guarda copia; sin señal usa la última copia REAL (nunca ejemplos en producción).
+ *  Un 401 (sesión vencida) no usa la copia: hay que volver a ingresar. */
 async function conCopia(clave, leer) {
-  const k = `hys_cat_${CONFIG.OBRAS_FUENTE}_${clave}`;
   try {
     const v = await leer();
-    try { localStorage.setItem(k, JSON.stringify({ fecha: new Date().toISOString(), v })); } catch (e) { /* lleno */ }
+    guardarCopia(clave, v);
     return v;
   } catch (e) {
-    const c = JSON.parse(localStorage.getItem(k) || "null");
+    const c = e?.estado === 401 ? null : leerCopia(clave);
     if (c) return c.v;
     throw e;
   }
+}
+const claveCopia = (clave) => `hys_cat_${CONFIG.OBRAS_FUENTE}_${clave}`;
+function guardarCopia(clave, v) {
+  try { localStorage.setItem(claveCopia(clave), JSON.stringify({ fecha: new Date().toISOString(), v })); } catch (e) { /* lleno */ }
+}
+function leerCopia(clave) {
+  try { return JSON.parse(localStorage.getItem(claveCopia(clave)) || "null"); } catch (e) { return null; }
 }
 
 // ---------------------------------------------------------------- Inspectores y hitos (F02)
@@ -159,15 +170,70 @@ export async function leerInspectores() {
   return lista;
 }
 
-const hitosCache = new Map();
-/** Hitos (project.milestone) de una obra: [{id, name}]. En ejemplos, solo los de riesgo crítico. */
+// ---------------------------------------------------------------- Ficha de Riesgos (F01) de la obra
+// Producción: GET /api/v1/fichas?ot=<id> (x_hys_ficha activa de la OT, leída por MIA). Formato:
+// {id, nombre, ot, estado, aprobada, clase, motivo, frecuencia_dias, modalidad, distancia_km, faltan_hitos,
+//  aviso_ugeop, aviso, riesgos: [{codigo, nombre, gravedad}], hitos: [{id, name, riesgo_hys, critico,
+//  inicio_previsto, inicio_real, alcanzado, situacion, riesgos: [códigos]}]} — o null si la OT no tiene Ficha.
+// Sin señal: la copia de esa obra o la de la lista completa (se baja junto con las obras), la más nueva.
+// Modo ejemplo: las fichas e hitos de datos-mock.js, convertidos al mismo formato.
+const fichasCache = new Map();
+
+function fichaDeEjemplo(otId) {
+  const f = M.FICHAS.find((x) => x.x_ot_id[0] === otId);
+  if (!f) return null;
+  const riesgo = (id) => M.RIESGOS.find((r) => r.id === id);
+  const hitos = M.HITOS.filter((x) => x.project_id[0] === otId).map((x) => ({ id: x.id, name: x.name, riesgo_hys: x.x_riesgo_hys,
+    critico: x.x_riesgo_hys === "critico", inicio_previsto: null, inicio_real: null, alcanzado: false, situacion: null, riesgos: [] }));
+  return { id: f.id, nombre: f.x_name, ot: otId, estado: f.x_estado, aprobada: f.x_estado === "aprobada", clase: f.x_clase_riesgo || "A",
+    motivo: f.x_clase_motivo || null, frecuencia_dias: null, modalidad: null, distancia_km: f.x_distancia_km ?? null,
+    faltan_hitos: false, aviso_ugeop: false, aviso: null,
+    riesgos: (f.x_riesgo_ids || []).map(riesgo).filter(Boolean).sort((a, b) => a.x_secuencia - b.x_secuencia)
+      .map((r) => ({ codigo: r.x_codigo, nombre: r.x_name, gravedad: r.x_gravedad || null })), hitos };
+}
+
+/** Ficha activa de la obra (o null = sin Ficha). Error solo si no hay señal y nunca se guardó copia. */
+export async function leerFichaObra(otId) {
+  if (fichasCache.has(otId)) return fichasCache.get(otId);
+  let f;
+  if (CONFIG.OBRAS_FUENTE !== "backend") f = fichaDeEjemplo(otId);
+  else {
+    try {
+      f = await leerDelBackend(`/fichas?ot=${encodeURIComponent(otId)}`);
+      guardarCopia(`ficha_${otId}`, f);
+    } catch (e) {
+      if (e?.estado === 401) throw e;
+      const propia = leerCopia(`ficha_${otId}`), todas = leerCopia("fichas");
+      const c = [propia && { fecha: propia.fecha, v: propia.v }, Array.isArray(todas?.v) && { fecha: todas.fecha, v: todas.v.find((x) => x.ot === otId) || null }]
+        .filter(Boolean).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+      if (!c) throw e;
+      f = c.v;
+    }
+  }
+  fichasCache.set(otId, f);
+  return f;
+}
+
+/** Baja todas las Fichas activas y guarda copia (para usar sin señal). Se llama al leer las obras; no falla. */
+function bajarFichas() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") return;
+  leerDelBackend("/fichas").then((l) => { if (Array.isArray(l)) guardarCopia("fichas", l); }).catch(() => { /* sin señal: queda la copia anterior */ });
+}
+
+/** Hitos de la Ficha de la obra que puede abrir un «Inicio de hito crítico»: críticos y no terminados. */
 export async function leerHitosObra(otId) {
-  if (hitosCache.has(otId)) return hitosCache.get(otId);
-  const lista = await conCopia(`hitos_${otId}`, async () => CONFIG.OBRAS_FUENTE === "backend"
-    ? leerDelBackend(`/hitos?ot=${encodeURIComponent(otId)}`)
-    : M.HITOS.filter((x) => x.project_id[0] === otId && x.x_riesgo_hys === "critico").map(({ id, name }) => ({ id, name })));
-  hitosCache.set(otId, lista);
-  return lista;
+  const f = await leerFichaObra(otId);
+  return (f?.hitos || []).filter((x) => x.critico && !x.alcanzado && x.situacion !== "terminado");
+}
+
+/** Ítems F02 de la plantilla del protocolo (PR-HYS-001 v1, Diseño-App-HyS-plantilla-items): 6 generales +
+ *  los de cada riesgo, con x_riesgo_codigo. Odoo todavía no tiene x_hys_item_plantilla: es contenido del
+ *  protocolo, no datos de obra, así que es el mismo en producción y en ejemplo. */
+export function itemsPlantillaF02() {
+  const cod = new Map(M.RIESGOS.map((r) => [r.id, r.x_codigo]));
+  return clonar(M.ITEMS_PLANTILLA).filter((it) => it.x_formulario === "F02" && it.x_active !== false)
+    .map((it) => ({ ...it, x_riesgo_codigo: it.x_riesgo_id ? cod.get(it.x_riesgo_id[0]) || null : null }))
+    .sort((a, b) => a.x_secuencia - b.x_secuencia);
 }
 
 async function obrasDeEjemplo() {
@@ -188,6 +254,7 @@ export function listarObrasActivas() {
       obras = CONFIG.OBRAS_FUENTE === "backend" ? await obrasDelBackend() : await obrasDeEjemplo();
       if (!Array.isArray(obras)) throw new Error("La lista de obras llegó vacía o con otro formato");
       Object.assign(estadoObras, { origen: CONFIG.OBRAS_FUENTE, fecha: new Date().toISOString() });
+      bajarFichas(); // copia de las Fichas para trabajar sin señal
       try { localStorage.setItem(CLAVE_OBRAS, JSON.stringify({ fecha: estadoObras.fecha, obras })); } catch (e) { /* lleno */ }
     } catch (e) {
       const copia = JSON.parse(localStorage.getItem(CLAVE_OBRAS) || "null"); // última lista real, para usar sin señal
@@ -243,7 +310,8 @@ export const SELECCION = {
 // 18/10/2026 (studio_customization.hys_field_inspeccion__x_cargado_por); x_estado también.
 // El backend vuelve a filtrar contra fields_get y avisa en «descartados» lo que no exista.
 export const CAMPOS_INSPECCION = [
-  "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_hito_id", "x_inspector_hys_id",
+  "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_ficha_hito_id", "x_inspector_hys_id",
+  "x_hito_id", // project.milestone: solo envíos viejos que siguen en la cola (desde 18/10/2026 se usa x_ficha_hito_id)
   "x_tc_nombre", "x_tc_firma", "x_tc_observaciones", "x_fecha_hora_control",
   "x_gps_lat", "x_gps_lon", "x_gps_precision_m", "x_gps_fecha", "x_gps_estado",
   "x_origen", "x_idempotency_key", "x_cargado_por", "x_linea_ids"
@@ -280,7 +348,7 @@ export function validarInspeccion(vals) {
   if (!valoresDe("x_ambito").includes(vals.x_ambito)) mal("x_ambito", "Ámbito inválido");
   if (!valoresDe("x_tipo_programa").includes(vals.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
   if (vals.x_ambito === "obra" && !Number.isInteger(vals.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
-  if (vals.x_tipo_programa === "hito_critico" && !Number.isInteger(vals.x_hito_id)) mal("x_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
+  if (vals.x_tipo_programa === "hito_critico" && !Number.isInteger(vals.x_ficha_hito_id) && !Number.isInteger(vals.x_hito_id)) mal("x_ficha_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
   if (!Number.isInteger(vals.x_inspector_hys_id)) mal("x_inspector_hys_id", "Falta el inspector");
   if (!vals.x_tc_nombre) mal("x_tc_nombre", "Falta quién toma conocimiento");
   if (!vals.x_tc_firma) mal("x_tc_firma", "Falta la firma");
@@ -393,7 +461,7 @@ const HIJOS = {
 const M2O = {
   x_ot_id: "project.project", x_inspector_id: "hr.employee", x_persona_id: "hr.employee",
   x_encargado_id: "hr.employee", x_autoriza_id: "hr.employee", x_control_id: "x_hys_control_legal",
-  x_item_id: "x_hys_item_plantilla", x_hito_id: "project.milestone"
+  x_item_id: "x_hys_item_plantilla", x_hito_id: "project.milestone", x_ficha_hito_id: "x_hys_ficha_hito", x_ficha_id: "x_hys_ficha"
 };
 
 // Secuencias de x_name (en Odoo las pone una regla "Al crear", §2.1).

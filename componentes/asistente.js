@@ -34,6 +34,8 @@ export async function montarAsistente(cont, def) {
   const auto = borrador?.auto || { idempotency_key: nuevaClaveIdempotencia(), abierto: ahoraIso(), gps: { estado: "pendiente" } };
   let i = borrador?.paso || 0;
   let error = null;
+  // Datos que dependen de lo ya elegido (p. ej. la Ficha de la obra en F02) antes de retomar un borrador.
+  try { await def.retomar?.(d, ctx); } catch (e) { console.warn("retomar", e); }
 
   // D-03: el GPS se toma al cargar el formulario; si falla, se envía igual con la marca.
   const pedirGps = () => {
@@ -59,6 +61,16 @@ export async function montarAsistente(cont, def) {
     localStorage.removeItem(claveBorrador); location.hash = "#/";
   };
   ctx.refrescar = () => pintar();
+  // El aviso de error se va apenas se corrige lo que faltaba (elegir una opción, escribir, firmar),
+  // sin esperar a «Siguiente». Si sigue faltando otra cosa, se actualiza el texto.
+  const revalidar = () => queueMicrotask(() => {
+    if (!error) return;
+    const p = visibles()[i];
+    const nuevo = p?.validar?.(d, ctx) || null;
+    const caja = cuerpo.querySelector("#error-paso");
+    if (!nuevo) { error = null; caja?.remove(); }
+    else if (nuevo !== error) { error = nuevo; caja?.replaceChildren(...Array.from(aviso(nuevo, "error").childNodes)); }
+  });
 
   const todos = () => (typeof def.pasos === "function" ? def.pasos(ctx) : def.pasos);
   const visibles = () => todos().filter((p) => !p.visible || p.visible(d, ctx));
@@ -67,6 +79,7 @@ export async function montarAsistente(cont, def) {
   const progreso = h("div", { class: "progreso" });
   const cuerpo = h("section", { class: "paso" });
   const nav = h("nav", { class: "nav-pasos" });
+  for (const ev of ["click", "change", "input", "pointerup"]) cuerpo.addEventListener(ev, revalidar);
   cont.replaceChildren(titulo, borrador ? h("div", { class: "aviso info" }, "Seguís un borrador guardado en el celular. ",
     h("button", { type: "button", class: "btn chico", onclick: descartar }, "Descartar")) : "", chipGps, progreso, cuerpo, nav);
 
