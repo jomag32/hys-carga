@@ -11,6 +11,7 @@ import { leerUsuariosLocales, reiniciarMock, listarEnviadosSimulados, borrarEnvi
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
+import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 export const FORMULARIOS = [
@@ -73,7 +74,8 @@ function vistaIngreso() {
   const pasos = (n) => h("div", { class: "pasos-ingreso" },
     h("span", { class: n === 1 ? "activo" : "" }, "1. Obra"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Quién sos"));
   const paso1 = () => app.replaceChildren(marca, pasos(1), h("h1", {}, "Ingresar"),
-    selectorObra(d, "obra", { etiqueta: "¿En qué obra o lugar estás?", incluirPlanta: true, alCambiar: (o) => paso2(o) }));
+    selectorObra(d, "obra", { etiqueta: "¿En qué obra o lugar estás?", incluirPlanta: true, alCambiar: (o) => paso2(o) }),
+    bloqueInstalar());
   const paso2 = async (o) => {
     app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
     let usuarios = [];
@@ -138,5 +140,6 @@ function panelDev(repintar) {
 window.addEventListener("hashchange", rutear);
 window.addEventListener("hys:sesion", () => pintarEncabezado(encabezado));
 alCambiar(() => pintarEncabezado(encabezado));
+registrarServiceWorker();
 iniciarCola();
 rutear();

@@ -173,3 +173,12 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) { .cargando-obras .girando { animation: none; } }
 .error-obras p { margin: 0 0 .5rem; }
 .error-obras .btn { width: 100%; font-weight: 700; }
+
+/* App instalable (componentes/pwa.js) */
+.caja-instalar { margin-top: 1.25rem; }
+.caja-instalar:empty { display: none; }
+.ayuda-instalar { background: var(--superficie); border: 2px solid var(--borde); border-radius: var(--radio); padding: .6rem .9rem; }
+.ayuda-instalar summary { font-weight: 700; color: var(--marca); cursor: pointer; min-height: 2.2rem; display: flex; align-items: center; }
+.ayuda-instalar ol { margin: .4rem 0 .2rem 1.2rem; padding: 0; }
+.aviso-version { position: fixed; left: .75rem; right: .75rem; bottom: max(.75rem, env(safe-area-inset-bottom)); z-index: 50;
+  background: var(--marca-oscura); color: #fff; padding: .75rem 1rem; border-radius: var(--radio); box-shadow: 0 8px 24px rgba(0,0,0,.25); }

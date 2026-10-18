@@ -122,6 +122,21 @@ Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UT
 
 `x_linea_ids` usa comandos `[0, 0, {...}]` (= `(0, 0, {...})` / `Command.create`): cabecera y líneas en **una sola llamada**, todo o nada. `contexto` no va al `create`: son datos que el backend puede usar (modalidad, clase, desvíos) mientras no se confirme que esos campos existen en el modelo creado.
 
+## App instalable (PWA)
+
+- `manifest.webmanifest` («HyS · Tecnología ARME», corto «HyS ARME», pantalla completa, `start_url`/`scope` = `./`, color `#163f8b`, `es-AR`), íconos en `iconos/` (escudo naranja, 192/512, *maskable* y `apple-touch-icon` 180) y metas de iOS en `index.html`.
+- `sw.js` (service worker): guarda la «cáscara» (HTML, JS, CSS, íconos, `datos/*.json`) para **abrir la app sin señal**. **Red primero** para todo lo propio (si hay señal siempre usa lo último publicado; sin señal o si tarda > 4 s, la copia). **Nunca** toca las llamadas a `hys-carga-api` ni a Odoo (otro origen) ni nada que no sea GET. La cola de envíos (IndexedDB) no cambia.
+- Versiones: subir `VERSION` en `sw.js` cuando cambie ese archivo o su lista `CASCARA` (p. ej. al agregar un formulario). El SW nuevo toma control solo y la página se recarga; si hay un formulario abierto, avisa y recarga al volver al inicio. El código nuevo de la app llega aunque no se suba `VERSION` (red primero).
+- Pantalla de ingreso: botón «📲 Instalar app en el celular» (Android/Chrome) o pasos para iPhone (`componentes/pwa.js`). `?sw=0` desactiva el service worker para depurar.
+
+### Cómo instalarla (para inspectores)
+
+**Android (Chrome):** abrí el link <https://hys-carga.onrender.com/> en Chrome → tocá «📲 Instalar app en el celular» (o menú ⋮ → «Instalar app» / «Agregar a pantalla principal») → «Instalar». Queda el ícono naranja «HyS ARME».
+
+**iPhone (Safari):** abrí el link en **Safari** (no en WhatsApp ni Chrome) → tocá **Compartir** (cuadrado con flecha ↑) → **«Agregar a inicio»** → «Agregar».
+
+Después se abre desde el ícono, como cualquier app. Sin señal también abre; lo cargado queda «En el celular» y se manda solo cuando vuelve la señal.
+
 ## Sin señal (api/cola.js)
 
 Cada envío se guarda primero en el celular, en **IndexedDB** (base `hys-carga`, almacén `cola`, clave = idempotency key; si no hay IndexedDB, `localStorage`). Lo que había en la cola vieja de `localStorage` se migra solo. Se reintenta **al volver la señal** (evento `online`), **al abrir la app**, cada 30 s y con **«Reintentar ahora»** (pantalla Envíos). Siempre con la **misma clave**: la cola no duplica y el backend (o el modo simulado) devuelve la misma respuesta si ya lo recibió. Estados: «En el celular», «Enviado (INS-2026-00001)», «Rechazado: motivo». La cantidad pendiente se ve arriba (📱 N), en el inicio y en Envíos.
