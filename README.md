@@ -32,6 +32,8 @@ Solo README inicial. Todavía no hay código ni despliegue en Render.
 
 **Actualización 18/10/2026 (mañana):** el backend ya sabe **crear la inspección F02 de verdad en Odoo** (`POST /api/v1/inspecciones`, idempotente) y sirve **inspectores** (`GET /api/v1/inspectores`, «Nombre · Legajo N» con buscador) e **hitos por obra** (`GET /api/v1/hitos?ot=<id>`). Probado de punta a punta **solo desde la compu** (registro de prueba «PRUEBA - borrar (INS-2026-00001)», id 2). **Lo publicado sigue en modo simulado** y **nada de esto está desplegado** en Render hasta el OK de Jorge (ver «Pasar a producción»).
 
+**Actualización 18/10/2026 10:01:** con el OK de Jorge, **en producción F02 se envía de verdad a Odoo** (`MODO_ENVIO: "backend"`; backend y sitio desplegados).
+
 ## Cómo probarla en la compu
 
 No hace falta instalar nada ni compilar. Desde la carpeta del repo:
@@ -74,8 +76,8 @@ El repo `jomag32/hys-carga` **queda público**. Por eso:
 
 | Interruptor | Valor | Qué hace |
 |---|---|---|
-| `MODO_ENVIO` | **`"simulado"`** (hoy) | No sale nada a la red. Se valida el payload igual que lo hará el backend, se guarda en la lista local «enviados» (`localStorage` `hys_enviados_simulados`) y se ve en el panel `?dev=1`. La pantalla dice «Enviado (modo prueba)». |
-| | `"backend"` | `POST {API_BASE}/api/v1/inspecciones` con cabecera `Idempotency-Key`. El backend `hys-carga-api` valida igual que el celular, descarta (y avisa en `descartados`) los campos que no existen en Odoo, busca por `x_idempotency_key` (si ya existe devuelve 200 con el mismo registro) y si no crea con MIA `x_hys_inspeccion` + `x_linea_ids` `[0, 0, {...}]` (201 `{id, name}`). La pantalla dice «Enviado a Odoo» y el número. |
+| `MODO_ENVIO` | `"simulado"` | No sale nada a la red. Se valida el payload igual que lo hará el backend, se guarda en la lista local «enviados» (`localStorage` `hys_enviados_simulados`) y se ve en el panel `?dev=1`. La pantalla dice «Enviado (modo prueba)». |
+| | **`"backend"`** (publicado desde el 18/10/2026) | `POST {API_BASE}/api/v1/inspecciones` con cabecera `Idempotency-Key`. El backend `hys-carga-api` valida igual que el celular, descarta (y avisa en `descartados`) los campos que no existen en Odoo, busca por `x_idempotency_key` (si ya existe devuelve 200 con el mismo registro) y si no crea con MIA `x_hys_inspeccion` + `x_linea_ids` `[0, 0, {...}]` (201 `{id, name}`). La pantalla dice «Enviado a Odoo» y el número. |
 | Prueba local | `api/config.local.js` | Solo en `localhost` (archivo en `.gitignore`; modelo en `api/config.local.example.js`): pone `MODO_ENVIO: "backend"`, `API_BASE: "http://localhost:8793"` y `OBRAS_FUENTE: "backend"` para probar contra un backend local **sin tocar la configuración publicada**. |
 | `API_BASE` | `"https://hys-carga-api.onrender.com"` | Backend `hys-carga-api` (Render). Rutas bajo `/api/v1`. |
 | `OBRAS_FUENTE` | `"backend"` en producción | `"ejemplo"` con `?dev=1` o en `localhost`; se fuerza con `?obras=backend\|ejemplo`. |

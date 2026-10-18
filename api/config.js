@@ -29,7 +29,7 @@ const PARAMS = new URLSearchParams(location.search);
 const EN_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 
 export const CONFIG = {
-  MODO_ENVIO: "simulado",            // "simulado" | "backend" (publicado: simulado hasta el OK de Jorge)
+  MODO_ENVIO: "backend",             // "simulado" | "backend" (envío real a Odoo desde el 18/10/2026, OK de Jorge 10:01)
   API_BASE: "https://hys-carga-api.onrender.com", // backend hys-carga-api: /api/v1/obras (hoy) y /api/v1/inspecciones (futuro, §5.5)
   MOCK: true,                       // catálogos de ejemplo (sin red)
   USUARIOS_URL: "datos/usuarios.json", // lista fija de usuarios de carga (D-04 revisada, §2.15)
