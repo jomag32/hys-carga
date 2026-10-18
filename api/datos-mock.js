@@ -181,7 +181,7 @@ export const TURNOS = [
 // ---- Lugar sin OT (Fábrica, Oficina, Depósito Central, Logística y Mantenimiento) ----
 export const LUGAR_PLANTA = {id: "planta", name: "Planta · Fábrica, Oficina, Depósito y Logística"};
 
-// Los usuarios de carga YA NO están acá: son la lista fija datos/usuarios.json (D-04 revisada, §2.15).
+// Quién ingresa: los inspectores (x_hys_inspector). En modo ejemplo, los EMPLEADOS de abajo con rol «inspector».
 
 // project.milestone · hitos de prueba por OT (nombres de la plantilla, diseño §2.6).
 // x_riesgo_hys: critico | medio | bajo. En F02 «Inicio de hito crítico (72 h)» lista los críticos de la OT.

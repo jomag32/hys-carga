@@ -9,7 +9,8 @@ import { h, nombreM2o } from "../componentes/util.js";
 import { campoOpciones, campoSelect, campoTexto, campoArea, campoFirma, aviso } from "../componentes/campos.js";
 import { selectorObra } from "../componentes/selector-obra.js";
 import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } from "../componentes/checklist.js";
-import { camposControl } from "../componentes/campos-auto.js";
+import { camposControl, obraCorta } from "../componentes/campos-auto.js";
+import { leerSesion } from "../componentes/sesion.js";
 import { selectorInspector, textoInspector } from "../componentes/selector-inspector.js";
 import { leerRegistros, leerInspectores, leerHitosObra, aFormatoOdoo, validarInspeccion, SELECCION, CAMPOS_PENDIENTES_EN_ODOO } from "../api/odoo.js";
 
@@ -101,6 +102,9 @@ export default {
           const obligatoria = PRESENCIAL_OBLIGATORIA.includes(d.tipo_programa);
           const remotaOk = esObra(d) && km > KM_REMOTA && !obligatoria;
           if (!remotaOk) d.modalidad = "presencial";
+          // Por defecto, el inspector es quien ingresó (se puede cambiar).
+          const yo = ctx.sesion?.usuario;
+          if (d.inspector_id == null && yo?.fuente === "x_hys_inspector" && ctx.inspectores.some((e) => e.id === yo.id)) d.inspector_id = yo.id;
           return [
             campoOpciones(d, "modalidad", "Modalidad", [["presencial", "Presencial"], ["remota", "Remota", { deshabilitado: !remotaOk }]],
               { columnas: 2, requerido: true, ayuda: !esObra(d) ? "Fuera de obra: presencial." : obligatoria ? "Apertura e inicio de hito crítico: presencial obligatoria."
@@ -183,6 +187,8 @@ export default {
           desvios_a_generar: cantNo, // un x_hys_desvio por cada «No» (lo crea el backend/Odoo, no este payload)
           campos_pendientes_en_odoo: CAMPOS_PENDIENTES_EN_ODOO,
           inspector_modelo: "x_hys_inspector",
+          cargado_por_inspector_id: leerSesion().usuario?.id ?? null, // el backend verifica que sea un inspector activo
+          lugar: obraCorta(leerSesion().obra),
           app: "hys-carga web"
         }
       }

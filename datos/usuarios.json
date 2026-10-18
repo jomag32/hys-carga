@@ -1,9 +1,0 @@
-[
-  {"id": "EJ-001", "nombre": "Usuario Ejemplo 1", "rol": "Capataz", "obras": [101, 102], "activo": true},
-  {"id": "EJ-002", "nombre": "Usuario Ejemplo 2", "rol": "Director de Obra", "obras": [101, 102, 103, 105, 106], "activo": true},
-  {"id": "EJ-003", "nombre": "Usuario Ejemplo 3", "rol": "HyS", "obras": ["*"], "activo": true},
-  {"id": "EJ-004", "nombre": "Usuario Ejemplo 4", "rol": "Capataz", "obras": [103, 104], "activo": true},
-  {"id": "EJ-005", "nombre": "Usuario Ejemplo 5", "rol": "Operario", "obras": [104], "activo": true},
-  {"id": "EJ-006", "nombre": "Usuario Ejemplo 6", "rol": "Encargado", "obras": ["planta"], "activo": true},
-  {"id": "EJ-007", "nombre": "Usuario Ejemplo 7 (de baja)", "rol": "Operario", "obras": [101], "activo": false}
-]

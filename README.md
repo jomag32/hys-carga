@@ -53,16 +53,19 @@ Flujo: **Ingresar** (1. obra u otro lugar → 2. quién sos) → inicio → F02 
 El repo `jomag32/hys-carga` **queda público**. Por eso:
 
 - **Proyectos y clientes reales:** los sirve el **backend** `hys-carga-api` desde Odoo (`GET /api/v1/obras`, con la cuenta de servicio MIA). **Nunca** se suben a GitHub. En el repo solo hay obras de **ejemplo** (`datos/obras.json`, «OT 9101 - Galpón Ejemplo Norte», …).
-- **Usuarios de carga reales:** la lista real **no** se sube a este repo. `datos/usuarios.json` tiene solo ejemplos («Usuario Ejemplo 1», …). Más adelante la sirve el backend desde un lugar privado (Postgres de Render o archivo de configuración privado).
+- **Quién ingresa:** no hay lista de usuarios en el repo. Ingresan los inspectores activos de Odoo (`x_hys_inspector`), que sirve el backend.
 - **Credenciales:** ninguna en el frontend ni en el repo (ni la de MIA, ni PINs, ni tokens). La credencial de MIA va solo como variable de entorno secreta del backend en Render.
 - Para probar en la compu con datos reales se puede generar `datos/obras.local.json` (misma forma que `obras.json`): está en `.gitignore` y la app lo usa primero si existe (solo en `localhost` con la fuente «ejemplo»).
 
-## Usuarios de carga (D-04 revisada)
+## Quién ingresa (decisión de Jorge 18/10/2026 19:24)
 
-- Lista **fija de texto** dentro de hys-carga, no en Odoo: `datos/usuarios.json` = `[{id, nombre, rol, obras: [id de project.project | "planta" | "*"], activo}]`. `"*"` = habilitado en todas las obras (p. ej. HyS). `activo: false` = dado de baja (no aparece, pero los registros viejos conservan su texto).
-- Ingreso: se elige la obra (o «Planta») y después el nombre de la lista de esa obra. La sesión queda en `localStorage` (`hys_sesion`); **Salir** la cierra.
-- **Método de acceso (PIN, enlace, etc.): pendiente** (diseño §7.4 #4). Hoy es solo elegir, sin contraseñas.
-- En cada registro viaja `x_cargado_por` (char) con el formato del diseño §2.15: `<id> · <nombre> · <rol> · <obra>`, p. ej. `EJ-004 · Usuario Ejemplo 4 · Capataz · OT 9104`.
+- Ingresan **solo los inspectores activos** de la tabla propia de HyS en Odoo (`x_hys_inspector`, `x_active`), los mismos de `GET /api/v1/inspectores`. Un inspector archivado no aparece ni puede enviar. Se dan de alta/baja en Odoo (HyS > Inspectores); no hace falta tocar la app.
+- Ingresar = 1) elegir la obra, 2) elegir tu nombre («Nombre · Legajo N · Inspector HyS»). Sin PIN ni contraseña (método de acceso **pendiente**, §7.4 #4). Todos los inspectores están habilitados en todas las obras (la tabla no tiene obras ni rol por persona).
+- Sin señal se usa la última lista leída en ese celular (la primera vez hace falta señal).
+- Las sesiones de la lista fija anterior (usuarios de ejemplo) se descartan solas: piden ingresar de nuevo.
+- `x_cargado_por` = `Legajo N · Nombre · Inspector HyS · OT 9101`. En F02 el backend **verifica** que quien carga (`contexto.cargado_por_inspector_id`) sea un inspector activo (si no, 422) y arma ese texto con el registro de Odoo.
+- En F02 el inspector del formulario viene precargado con quien ingresó (se puede cambiar).
+- Con datos de ejemplo (`?dev=1` o localhost sin configuración local) la lista es de inspectores **de ejemplo** (`api/datos-mock.js`) y el envío es siempre simulado.
 
 ## Obras: selector de F02 (y del ingreso)
 
@@ -108,7 +111,7 @@ Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UT
     "x_origen": "formulario", "x_idempotency_key": "f8fc0963-…",
     "x_fecha_hora_control": "2026-10-17 21:57:55",
     "x_gps_lat": -27.3671, "x_gps_lon": -55.8961, "x_gps_precision_m": 12, "x_gps_fecha": "2026-10-17 21:57:46", "x_gps_estado": "ok",
-    "x_cargado_por": "EJ-004 · Usuario Ejemplo 4 · Capataz · OT 9104",
+    "x_cargado_por": "Legajo 9012 · Inspector HyS Ejemplo · Inspector HyS · OT 9104",
     "x_linea_ids": [
       [0, 0, {"x_name": "Orden y limpieza del frente; …", "x_bloque": "Generales · siempre", "x_item_codigo": "F02-GEN-01", "x_secuencia": 1,
               "x_respuesta": "si", "x_criticidad": false, "x_foto": false, "x_comentario": "Todo ordenado"}],
@@ -159,13 +162,12 @@ hys-carga/
 ├── index.html                    # Pantalla única: encabezado (obra / quién carga / envíos / Salir) + contenido
 ├── app.js                        # Arranque, ruteo por hash, ingreso (obra → usuario), inicio, envíos, panel ?dev=1
 ├── datos/
-│   ├── usuarios.json             # Lista fija de usuarios de carga: SOLO EJEMPLOS (repo público)
 │   ├── obras.json                # Obras «en obra» de EJEMPLO para el modo simulado
 │   └── obras.local.json          # (no se sube, .gitignore) copia real para probar en la compu
 ├── css/estilos.css               # Mobile-first, botones grandes, sin frameworks
 ├── api/
-│   ├── config.js                 # MODO_ENVIO simulado/backend, API_BASE, MOCK, fuentes de usuarios y obras
-│   ├── odoo.js                   # Envío F02 (payload, validación, simulado/backend), obras, usuarios, catálogos
+│   ├── config.js                 # MODO_ENVIO simulado/backend, API_BASE, MOCK, fuentes de obras
+│   ├── odoo.js                   # Envío F02 (payload, validación, simulado/backend), obras, inspectores (ingreso), catálogos
 │   ├── cola.js                   # Cola sin conexión en IndexedDB con reintentos e idempotencia
 │   └── datos-mock.js             # Datos de ejemplo (obras, empleados, turnos, ítems, fichas, hitos, ...)
 ├── componentes/
@@ -194,10 +196,9 @@ hys-carga/
 
 - **Desplegar inspectores HyS** (con el OK de Jorge): (1) cargar los inspectores reales en Odoo, **HyS > Inspectores** (si no, la lista del celular queda vacía); borrar o archivar el de prueba «PRUEBA - Inspector Ejemplo» (legajo PRUEBA-1, id 1); (2) desplegar `hys-carga-api` (último commit de `main`) y probar `GET /api/v1/inspectores`; (3) enseguida desplegar el sitio `hys-carga`. Entre (2) y (3) el sitio viejo no puede enviar (422 «app desactualizada»); los celulares tienen que recargar.
 - Registros de prueba en Odoo para borrar cuando Jorge diga: «EJEMPLO - borrar (INS-2026-00000)» (id 1), «PRUEBA - borrar (INS-2026-00001)» (id 2), INS-2026-00001 marcado PRUEBA (id 3).
-- **Backend:** falta lista de usuarios real, idempotencia en Postgres (§5.2; hoy se busca por `x_idempotency_key` en Odoo) y el resto de los formularios. No se despliega nada sin el OK de Jorge.
+- **Backend:** falta idempotencia en Postgres (§5.2; hoy se busca por `x_idempotency_key` en Odoo) y el resto de los formularios. No se despliega nada sin el OK de Jorge.
 - **Permisos de MIA:** grupo «HyS Servicio API» con leer / crear / escribir (sin borrar) en `x_hys_inspeccion` y `x_hys_inspeccion_linea` (verificado 18/10/2026). Falta para los demás modelos `x_hys_*`.
-- **Usuarios de ejemplo vs. obras reales:** `datos/usuarios.json` referencia obras de ejemplo (101–106); con las obras reales del backend solo aparece el usuario de ejemplo habilitado en todas («*»). Se resuelve con la lista real de usuarios (privada, servida por el backend).
-- **Método de acceso** de los usuarios (PIN, enlace, etc., §7.4 #4) y **dónde vive la lista real** (privada, servida por el backend).
+- **Método de acceso** de los usuarios (PIN, enlace, etc., §7.4 #4) ; rol u obras por persona si hacen falta (hoy todos los inspectores en todas las obras).
 - **Modelo de plantilla de ítems** (`x_hys_item_plantilla`) en Odoo: hoy los ítems salen del Anexo A (en `datos-mock.js`) y viajan por **código** (`x_item_codigo`), no como many2one.
 - Ids de ejemplo (solo `?dev=1`/localhost): `x_ot_id`, `x_inspector_hys_id` y `x_hito_id` de los ejemplos no son ids reales de Odoo (por eso con datos de ejemplo el envío se fuerza a simulado); con el backend son reales (obras, inspectores e hitos vienen de Odoo).
 - **Desvíos de F02:** el backend todavía no crea `x_hys_desvio` por cada «No» (queda `x_cant_no`).

@@ -32,7 +32,6 @@ export const CONFIG = {
   MODO_ENVIO: "backend",             // "simulado" | "backend" (envío real a Odoo desde el 18/10/2026, OK de Jorge 10:01)
   API_BASE: "https://hys-carga-api.onrender.com", // backend hys-carga-api: /api/v1/obras (hoy) y /api/v1/inspecciones (futuro, §5.5)
   MOCK: true,                       // catálogos de ejemplo (sin red)
-  USUARIOS_URL: "datos/usuarios.json", // lista fija de usuarios de carga (D-04 revisada, §2.15)
   // Obras «en obra» (listarObrasActivas en api/odoo.js): ver OBRAS_FUENTE abajo.
   //   · "backend": GET API_BASE + "/api/v1/obras" (EN PROGRESO o PAUSADO, no plantilla, sin «VARIOS»).
   //   · "ejemplo": se leen estos archivos en orden; el primero que exista gana.

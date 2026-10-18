@@ -123,6 +123,18 @@ export function crearInspecciones(cliente, catalogos) {
       if (!inspector) throw new ErrorEntrada(422, "El inspector elegido no existe o está archivado en Odoo (HyS > Inspectores). Elegí otro.");
       if (c.inspeccion.x_inspector_texto) vals.x_inspector_texto = textoInspector(inspector);
 
+      // Quién carga: tiene que ser un inspector ACTIVO de x_hys_inspector (los únicos que pueden ingresar).
+      // x_cargado_por lo arma el servidor con ese registro (no se confía en el texto del celular).
+      const ctxEnvio = cuerpo.contexto || {};
+      const idCargador = ctxEnvio.cargado_por_inspector_id;
+      if (!Number.isInteger(idCargador)) throw new ErrorEntrada(422, "La app está desactualizada: tocá «Salir», recargá la página y volvé a ingresar con tu nombre.");
+      const cargador = idCargador === inspector.id ? inspector : await catalogos.buscarInspector(idCargador);
+      if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como inspector activo en Odoo (HyS > Inspectores). Avisá a HyS.");
+      if (c.inspeccion.x_cargado_por) {
+        const lugar = typeof ctxEnvio.lugar === "string" && ctxEnvio.lugar.trim() ? ctxEnvio.lugar.trim().slice(0, 60) : null;
+        vals.x_cargado_por = [textoInspector(cargador), "Inspector HyS", lugar].filter(Boolean).join(" · ").slice(0, 250);
+      }
+
       // Campos que pone el servidor (si existen en el modelo).
       const ci = c.inspeccion;
       const pon = (k, x) => { if (ci[k] && !ci[k].readonly && x !== undefined && x !== null && x !== false) vals[k] = x; };

@@ -5,7 +5,7 @@
 //   · GPS (decisión D-03): se pide al cargar el formulario; viaja con lat, lon, precisión y
 //     fecha de captura. Si se niega o no hay GPS, se envía igual con coordenadas vacías y una
 //     marca (x_gps_estado) que explica por qué.
-//   · quién cargó: usuario de la lista fija de hys-carga (datos/usuarios.json), como texto x_cargado_por.
+//   · quién cargó: el inspector que ingresó (x_hys_inspector), como texto x_cargado_por.
 // La fecha de recepción (x_fecha_recepcion) la pone el backend, no el celular.
 
 import { CONFIG } from "../api/config.js";
@@ -84,18 +84,17 @@ export const TEXTO_GPS = {
 export const obraCorta = (obra) => (!obra ? "—" : obra.id === "planta" ? "Planta" : obra.ot ? `OT ${obra.ot}` : `Proyecto ${obra.id}`);
 
 /**
- * Texto de x_cargado_por (char, D-04 revisada, §2.15): "<id> · <nombre> · <rol> · <obra>",
- * con los datos del usuario de la lista fija de hys-carga al momento de cargar.
+ * Texto de x_cargado_por (char): "Legajo N · <nombre> · Inspector HyS · <obra>", con el inspector que
+ * ingresó. En F02 el backend lo vuelve a armar con el registro activo de x_hys_inspector.
  */
 export function textoCargadoPor(sesion = leerSesion()) {
   const u = sesion.usuario;
-  return u ? [u.id, u.nombre, u.rol, obraCorta(sesion.obra)].join(" · ") : false;
+  return u ? [u.legajo ? `Legajo ${u.legajo}` : `Inspector ${u.id}`, u.nombre, u.rol, obraCorta(sesion.obra)].join(" · ") : false;
 }
 
 /**
  * Campos de control que lleva TODO registro cabecera enviado a Odoo (§2.8, §2.14, §2.15):
  * clave de idempotencia, fecha/hora del control, GPS (x_gps_*) y quién cargó (x_cargado_por).
- * x_cargado_por todavía no existe en Odoo (se crea cuando Jorge lo indique).
  */
 export function camposControl(auto, { claveCampo = "x_idempotency_key" } = {}) {
   const g = auto.gps || { estado: "no_disponible" };

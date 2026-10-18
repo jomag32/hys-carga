@@ -38,32 +38,17 @@ export async function escribirRegistro(modelo, ids, valores, { idempotencyKey } 
   return llamar(`/registros/${modelo}/escribir`, { ids, valores }, idempotencyKey);
 }
 
-// ---------------------------------------------------------------- Usuarios de carga (D-04 revisada)
-// Lista FIJA de texto en hys-carga (no en Odoo): datos/usuarios.json = [{id, nombre, rol, obras, activo}].
-// En este repo público hay solo ejemplos; la lista real NO se sube acá (ver README). Más adelante
-// la sirve el backend de Render desde un lugar privado (misma forma de datos).
-const CLAVE_USUARIOS = "hys_usuarios_cache";
-
-export async function leerListaUsuarios() {
-  try {
-    const r = await fetch(CONFIG.USUARIOS_URL, { cache: "no-cache" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const lista = await r.json();
-    localStorage.setItem(CLAVE_USUARIOS, JSON.stringify(lista)); // copia para entrar sin señal
-    return lista;
-  } catch (e) {
-    const copia = JSON.parse(localStorage.getItem(CLAVE_USUARIOS) || "null");
-    if (copia) return copia;
-    throw new Error("No se pudo leer la lista de usuarios (¿sin señal la primera vez?)");
-  }
-}
-
-/** Usuarios activos habilitados en una obra (id de OT o "planta"). */
-export async function leerUsuariosLocales(obraId) {
-  const lista = await leerListaUsuarios();
-  // obras: ids de project.project (o "planta"); "*" = habilitado en todas (p. ej. HyS).
-  return lista.filter((u) => u.activo !== false && (u.obras || []).some((o) => o === "*" || String(o) === String(obraId)))
-    .map(({ id, nombre, rol }) => ({ id, nombre, rol }));
+// ---------------------------------------------------------------- Quién ingresa (decisión de Jorge 18/10/2026 19:24)
+// Pueden ingresar SOLO los inspectores activos de la tabla propia de HyS en Odoo (x_hys_inspector,
+// x_active), los mismos de GET /api/v1/inspectores. Ya no hay lista fija de usuarios en el repo.
+// Sin señal se usa la última lista leída (conCopia guarda copia en el celular).
+// Con datos de ejemplo (?dev=1 o localhost) son inspectores de EJEMPLO y el envío es siempre simulado.
+export const ROL_INGRESO = "Inspector HyS";
+/** [{id, nombre, legajo, tipo, empresa, rol, fuente}] — id = x_hys_inspector. Todos habilitados en todas las obras. */
+export async function leerUsuariosDeIngreso() {
+  const lista = await leerInspectores();
+  return lista.map((e) => ({ id: e.id, nombre: e.nombre, legajo: e.legajo ?? null, tipo: e.tipo || "interno", empresa: e.empresa || null,
+    rol: ROL_INGRESO, fuente: "x_hys_inspector" }));
 }
 
 // ---------------------------------------------------------------- Obras «en obra» (selector de F02)

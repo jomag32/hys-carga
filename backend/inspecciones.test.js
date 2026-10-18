@@ -48,8 +48,12 @@ const clave = () => `6f1c2a9e-1111-4222-8333-${String(++n).padStart(12, "0")}`;
 const cuerpo = (k = clave(), fecha = "2026-10-18 12:00:00") => ({ formulario: "F02", idempotency_key: k, odoo: { model: "x_hys_inspeccion", method: "create", vals: {
   x_formulario: "F02", x_ambito: "obra", x_tipo_programa: "periodica", x_ot_id: 6, x_inspector_hys_id: 9, x_tc_nombre: "Capataz",
   x_tc_firma: "AAAA", x_fecha_hora_control: fecha, x_gps_estado: "denegado", x_idempotency_key: k, x_cargado_por: "EJ-001 · Usuario Ejemplo",
-  x_linea_ids: [[0, 0, { x_name: "Ítem", x_bloque: "General", x_respuesta: "si" }]] } } });
-const armar = (o) => { const f = odooFalso(o); return { ...f, api: crearInspecciones(() => f.cliente, { buscarInspector: async () => ({ id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }) }) }; };
+  x_linea_ids: [[0, 0, { x_name: "Ítem", x_bloque: "General", x_respuesta: "si" }]] } },
+  contexto: { cargado_por_inspector_id: 10, lugar: "OT 9101" } });
+// Inspectores activos de ejemplo: 9 (el elegido en el formulario) y 10 (quien carga). 11 = archivado.
+const ACTIVOS = { 9: { id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }, 10: { id: 10, x_name: "Cargador Ejemplo", x_legajo: "2" } };
+const catalogosFalsos = { buscarInspector: async (id) => ACTIVOS[id] || null };
+const armar = (o) => { const f = odooFalso(o); return { ...f, api: crearInspecciones(() => f.cliente, catalogosFalsos) }; };
 const nombres = (db) => db.map((r) => r.x_name).sort();
 
 test("numeroDe / formatoNumero", () => {
@@ -133,7 +137,7 @@ test("error de unicidad en create → reintenta con el siguiente número", async
     if (met === "create" && primera) { primera = false; f.db.push({ id: 50, x_name: args[0][0].x_name }); throw new ErrorOdoo("Odoo: error", { tipo: "psycopg2.errors.UniqueViolation", detalle: "duplicate key value violates unique constraint" }); }
     return f.cliente.ejecutar(m, met, args, kw);
   } };
-  const api = crearInspecciones(() => cliente, { buscarInspector: async () => ({ id: 9, x_name: "Inspector Ejemplo" }) });
+  const api = crearInspecciones(() => cliente, catalogosFalsos);
   const r = await api.recibir(cuerpo());
   assert.equal(r.cuerpo.name, "INS-2026-00002");
 });
@@ -151,4 +155,19 @@ test("pide también archivados (active_test: false)", async () => {
   const { api, llamadas } = armar();
   await api.recibir(cuerpo());
   assert.ok(llamadas.some((l) => l.metodo === "search_read" && l.args[0][0][1] === "ilike" && l.kwargs.context?.active_test === false));
+});
+
+test("quien carga: x_cargado_por lo arma el servidor con el inspector activo", async () => {
+  const { api, db } = armar();
+  await api.recibir(cuerpo());
+  assert.equal(db[0].x_cargado_por, "Legajo 2 · Cargador Ejemplo · Inspector HyS · OT 9101");
+});
+
+test("quien carga: sin id (app vieja) o inspector archivado → 422 y no se crea nada", async () => {
+  const { api, db } = armar();
+  const viejo = cuerpo(); delete viejo.contexto;
+  await assert.rejects(api.recibir(viejo), (e) => e.estado === 422 && /desactualizada/.test(e.message));
+  const archivado = cuerpo(); archivado.contexto.cargado_por_inspector_id = 11;
+  await assert.rejects(api.recibir(archivado), (e) => e.estado === 422 && /inspector activo/.test(e.message));
+  assert.equal(db.length, 0);
 });

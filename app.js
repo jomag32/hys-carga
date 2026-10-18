@@ -3,11 +3,11 @@
 
 import { h } from "./componentes/util.js";
 import { pintarEncabezado } from "./componentes/encabezado.js";
-import { leerSesion, guardarSesion, cerrarSesion } from "./componentes/sesion.js";
+import { leerSesion, guardarSesion, cerrarSesion, usuarioVigente } from "./componentes/sesion.js";
 import { selectorObra } from "./componentes/selector-obra.js";
 import { montarAsistente } from "./componentes/asistente.js";
 import { aviso } from "./componentes/campos.js";
-import { leerUsuariosLocales, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
+import { leerUsuariosDeIngreso, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
@@ -32,7 +32,9 @@ const encabezado = document.getElementById("encabezado");
 async function rutear() {
   pintarEncabezado(encabezado);
   const ruta = (location.hash.replace(/^#\/?/, "") || "inicio").split("?")[0];
-  const s = leerSesion();
+  let s = leerSesion();
+  // Sesiones de la lista fija vieja (usuarios de ejemplo): se piden de nuevo con un inspector.
+  if (s.usuario && !usuarioVigente(s.usuario)) { cerrarSesion(); s = leerSesion(); }
   const form = FORMULARIOS.find((f) => f.ruta === ruta);
   try {
     if (ruta === "ingresar" || ruta === "obra" || ruta === "sesion") return vistaIngreso();
@@ -65,7 +67,7 @@ function vistaInicio() {
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"));
 }
 
-// Ingreso (D-04 revisada): 1) elegir la obra, 2) elegir el nombre de la lista fija de esa obra.
+// Ingreso: 1) elegir la obra, 2) elegir tu nombre de la lista de inspectores activos de HyS (Odoo, x_hys_inspector).
 // Método de acceso (PIN, enlace, etc.) PENDIENTE (§7.4 #4): hoy es solo elegir, sin contraseñas.
 function vistaIngreso() {
   const s = leerSesion();
@@ -79,10 +81,11 @@ function vistaIngreso() {
   const paso2 = async (o) => {
     app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
     let usuarios = [];
-    try { usuarios = await leerUsuariosLocales(o.id); }
-    catch (e) { app.replaceChildren(marca, aviso(e.message, "error"), h("button", { type: "button", class: "btn secundario", onclick: paso1 }, "← Volver")); return; }
+    try { usuarios = await leerUsuariosDeIngreso(); }
+    catch (e) { app.replaceChildren(marca, aviso(`No se pudo leer la lista de inspectores (${e.message}). La primera vez hace falta señal; probá de nuevo.`, "error"),
+      h("button", { type: "button", class: "btn primario", onclick: () => paso2(o) }, "Reintentar"), h("button", { type: "button", class: "btn secundario", onclick: paso1 }, "← Volver")); return; }
     app.replaceChildren(marca, pasos(2), h("h1", {}, "¿Quién sos?"),
-      h("p", { class: "ayuda" }, `Personas habilitadas en ${o.name}. Nadie carga por otro.`),
+      h("p", { class: "ayuda" }, "Inspectores de HyS activos. Elegí tu nombre: nadie carga por otro."),
       usuarios.length ? h("div", { class: "lista-botones", id: "lista-usuarios" }, usuarios.map((u) => h("button", {
         type: "button", class: "btn-lista", "data-usuario-id": u.id,
         onclick: () => {
@@ -90,7 +93,7 @@ function vistaIngreso() {
           guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km }, usuario: u, ingreso: ahoraIso() });
           location.hash = "#/";
         }
-      }, h("b", {}, u.nombre), h("br"), h("small", {}, `${u.rol} · ${u.id}`)))) : aviso("Esta obra no tiene personas habilitadas en la lista.", "alerta"),
+      }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
       aviso("Acceso con PIN u otro método: pendiente de definir. Por ahora solo se elige el nombre.", "info"),
       h("button", { type: "button", class: "btn secundario", id: "btn-cambiar-obra", onclick: paso1 }, "← Cambiar obra"));
   };
