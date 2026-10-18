@@ -110,15 +110,17 @@ async function conCopia(clave, leer) {
 }
 
 // ---------------------------------------------------------------- Inspectores y hitos (F02)
-// Fuente = CONFIG.OBRAS_FUENTE (igual que las obras): "backend" → GET /api/v1/inspectores y
+// Fuente = CONFIG.OBRAS_FUENTE (igual que las obras): "backend" → GET /api/v1/inspectores (modelo propio
+// x_hys_inspector, «HyS > Inspectores»; NO empleados ni usuarios, decisión de Jorge 18/10/2026) y
 // GET /api/v1/hitos?ot=<id> (Odoo vía MIA, solo lectura); "ejemplo" → datos-mock.js.
 let inspectoresCache = null;
-/** [{id, nombre, legajo}] (id = hr.employee). */
+/** [{id, nombre, legajo, tipo, empresa}] (id = x_hys_inspector). */
 export async function leerInspectores() {
   if (inspectoresCache) return inspectoresCache;
   const lista = await conCopia("inspectores", async () => CONFIG.OBRAS_FUENTE === "backend"
     ? leerDelBackend("/inspectores")
-    : M.EMPLEADOS.filter((e) => (e.x_mock_roles || []).includes("inspector")).map((e) => ({ id: e.id, nombre: e.name, legajo: e.x_legajo ?? null })));
+    : M.EMPLEADOS.filter((e) => (e.x_mock_roles || []).includes("inspector"))
+      .map((e) => ({ id: e.id, nombre: e.name, legajo: e.x_legajo ?? null, tipo: e.x_tipo || "interno", empresa: e.x_empresa || null })));
   if (!Array.isArray(lista)) throw new Error("La lista de inspectores llegó con otro formato");
   inspectoresCache = lista;
   return lista;
@@ -207,7 +209,7 @@ export const SELECCION = {
 // 18/10/2026 (studio_customization.hys_field_inspeccion__x_cargado_por); x_estado también.
 // El backend vuelve a filtrar contra fields_get y avisa en «descartados» lo que no exista.
 export const CAMPOS_INSPECCION = [
-  "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_hito_id", "x_inspector_id",
+  "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_hito_id", "x_inspector_hys_id",
   "x_tc_nombre", "x_tc_firma", "x_tc_observaciones", "x_fecha_hora_control",
   "x_gps_lat", "x_gps_lon", "x_gps_precision_m", "x_gps_fecha", "x_gps_estado",
   "x_origen", "x_idempotency_key", "x_cargado_por", "x_linea_ids"
@@ -245,7 +247,7 @@ export function validarInspeccion(vals) {
   if (!valoresDe("x_tipo_programa").includes(vals.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
   if (vals.x_ambito === "obra" && !Number.isInteger(vals.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
   if (vals.x_tipo_programa === "hito_critico" && !Number.isInteger(vals.x_hito_id)) mal("x_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
-  if (!Number.isInteger(vals.x_inspector_id)) mal("x_inspector_id", "Falta el inspector");
+  if (!Number.isInteger(vals.x_inspector_hys_id)) mal("x_inspector_hys_id", "Falta el inspector");
   if (!vals.x_tc_nombre) mal("x_tc_nombre", "Falta quién toma conocimiento");
   if (!vals.x_tc_firma) mal("x_tc_firma", "Falta la firma");
   if (!vals.x_fecha_hora_control) mal("x_fecha_hora_control", "Falta la fecha y hora del control");

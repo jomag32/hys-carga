@@ -2,6 +2,7 @@
 // Idempotente por x_idempotency_key: si ya existe, devuelve el registro existente (200) sin duplicar.
 import { validarYFiltrar } from "./validar.js";
 import { ErrorOdoo } from "./odoo.js";
+import { textoInspector } from "./catalogos.js";
 
 const CAMPOS_MS = 10 * 60 * 1000;
 const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
@@ -10,7 +11,7 @@ export class ErrorEntrada extends Error {
   constructor(estado, mensaje, extra = {}) { super(mensaje); this.estado = estado; this.extra = extra; }
 }
 
-export function crearInspecciones(cliente) {
+export function crearInspecciones(cliente, catalogos) {
   let campos = null, camposHasta = 0;
   const enCurso = new Map(); // clave → promesa (dos envíos simultáneos con la misma clave = uno solo)
 
@@ -40,15 +41,22 @@ export function crearInspecciones(cliente) {
     return `${pref}${String(n + 1).padStart(5, "0")}`;
   }
 
-  async function recibir(cuerpo, { claveCabecera } = {}) {
+  /** soloValidar (uso interno/pruebas, no expuesto por HTTP): arma los vals finales sin crear nada. */
+  async function recibir(cuerpo, { claveCabecera, soloValidar = false } = {}) {
     const c = await leerCampos();
     const { errores, vals, descartados } = validarYFiltrar(cuerpo, c, { claveCabecera });
     if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores, descartados });
     const clave = vals.x_idempotency_key;
-    if (enCurso.has(clave)) return enCurso.get(clave);
+    if (!soloValidar && enCurso.has(clave)) return enCurso.get(clave);
     const p = (async () => {
       const ya = await buscarPorClave(clave);
       if (ya) return { estado: 200, cuerpo: respuesta(ya.id, ya.x_name, { repetido: true, descartados }) };
+
+      // Inspector: de la lista propia de HyS (x_hys_inspector), activo. Se guarda el vínculo y una
+      // copia en texto («Legajo N · Nombre»). x_inspector_id (empleado) ya no se completa.
+      const inspector = await catalogos.buscarInspector(vals.x_inspector_hys_id);
+      if (!inspector) throw new ErrorEntrada(422, "El inspector elegido no existe o está archivado en Odoo (HyS > Inspectores). Elegí otro.");
+      if (c.inspeccion.x_inspector_texto) vals.x_inspector_texto = textoInspector(inspector);
 
       // Campos que pone el servidor (si existen en el modelo).
       const ci = c.inspeccion;
@@ -68,6 +76,8 @@ export function crearInspecciones(cliente) {
       // Secuencia de las líneas si no vino.
       vals.x_linea_ids.forEach(([, , l], i) => { if (c.linea.x_secuencia && l.x_secuencia === undefined) l.x_secuencia = i + 1; });
 
+      if (soloValidar) return { estado: 200, cuerpo: { simulado: true, vals, descartados } };
+
       const anio = (vals.x_fecha_hora_control || ahora).slice(0, 4);
       const prefijo = process.env.INSPECCION_PREFIJO_PRUEBA; // solo pruebas: «PRUEBA - borrar (INS-…)»
       for (let intento = 0; intento < 3; intento++) {
@@ -86,7 +96,7 @@ export function crearInspecciones(cliente) {
         }
       }
     })().finally(() => enCurso.delete(clave));
-    enCurso.set(clave, p);
+    if (!soloValidar) enCurso.set(clave, p);
     return p;
   }
 

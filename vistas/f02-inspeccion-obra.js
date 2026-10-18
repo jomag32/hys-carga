@@ -155,7 +155,7 @@ export default {
       x_estado: "realizada",
       x_ot_id: esObra(d) ? d.obra.id : false,
       x_hito_id: d.tipo_programa === "hito_critico" ? d.hito_id : false,
-      x_inspector_id: d.inspector_id,
+      x_inspector_hys_id: d.inspector_id, // x_hys_inspector (el backend agrega x_inspector_texto)
       x_tc_nombre: d.tc_nombre.trim(),
       x_tc_firma: d.tc_firma,
       x_tc_observaciones: d.tc_obs?.trim() || false,
@@ -182,6 +182,7 @@ export default {
           cant_no: cantNo,
           desvios_a_generar: cantNo, // un x_hys_desvio por cada «No» (lo crea el backend/Odoo, no este payload)
           campos_pendientes_en_odoo: CAMPOS_PENDIENTES_EN_ODOO,
+          inspector_modelo: "x_hys_inspector",
           app: "hys-carga web"
         }
       }

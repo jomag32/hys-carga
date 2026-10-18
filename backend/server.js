@@ -7,7 +7,7 @@
 // Endpoints:
 //   GET  /healthz                 → {ok:true} (no toca Odoo)
 //   GET  /api/v1/obras            → [{id, name, ot, partner, director}] obras en curso (caché 5 min)
-//   GET  /api/v1/inspectores      → [{id, nombre, legajo}] (hr.employee o lista privada CSV; caché 5 min)
+//   GET  /api/v1/inspectores      → [{id, nombre, legajo, tipo, empresa}] de x_hys_inspector activos (caché 5 min)
 //   GET  /api/v1/hitos?ot=<id>    → [{id, name, fecha_limite, alcanzado}] project.milestone de la OT
 //   POST /api/v1/inspecciones     → create de x_hys_inspeccion + líneas (idempotente; 201 nuevo, 200 repetido)
 
@@ -31,7 +31,7 @@ const cliente = () => (odoo ??= crearCliente({
 }));
 
 const catalogos = crearCatalogos(cliente);
-const inspecciones = crearInspecciones(cliente);
+const inspecciones = crearInspecciones(cliente, catalogos);
 
 // ---------------------------------------------------------------- obras (caché en memoria)
 let cache = { obras: null, hasta: 0, fecha: null };
@@ -137,7 +137,7 @@ const servidor = http.createServer(async (req, res) => {
     if (ruta === "/api/v1/inspectores" && req.method === "GET") {
       try {
         const r = await catalogos.leerInspectores();
-        return json(res, 200, r.lista, { "X-Fuente": r.fuente, "X-Sin-Vincular": String(r.sinVincular) });
+        return json(res, 200, r.lista, { "X-Fuente": r.fuente });
       } catch (e) { return responderError(res, e, "inspectores"); }
     }
     if (ruta === "/api/v1/hitos" && req.method === "GET") {

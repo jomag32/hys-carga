@@ -11,10 +11,6 @@ de entorno de Render.
 | `OBRAS_ETAPAS` | Opcional. Etapas de proyecto a listar (por defecto `EN PROGRESO,PAUSADO`). |
 | `RATE_LIMIT_PER_MIN` | Opcional. Pedidos por minuto por IP (por defecto 60). |
 | `MAX_BODY_MB` | Opcional. Tamaño máximo de un envío (por defecto 15 MB; si se pasa → 413). |
-| `INSPECTORES_CSV` / `INSPECTORES_CSV_PATH` | Opcional. Lista **privada** de inspectores (ver abajo). Si está, manda sobre Odoo. Ruta por defecto `/etc/secrets/inspectores.csv` (Secret File de Render). |
-| `INSPECTORES_CAMPO_LEGAJO` | Opcional. Campo de `hr.employee` que se usa como legajo (por defecto `registration_number`). `pin` y `barcode` están prohibidos (son credenciales de asistencia). |
-| `INSPECTORES_PUESTOS` | Opcional. Solo empleados con esos puestos (`job_id`, separados por coma). Por defecto, todos. |
-| `INSPECTORES_EXCLUIR_DEPTOS` | Opcional. Departamentos a excluir (por defecto `CESANTES`). |
 | `INSPECCION_PREFIJO_PRUEBA` | **Solo pruebas locales.** Antepone un texto al número: «PRUEBA - borrar (INS-2026-00001)». No configurar en Render. |
 
 ## Endpoints
@@ -24,7 +20,7 @@ de entorno de Render.
   en etapa EN PROGRESO o PAUSADO, sin los proyectos llamados solo «VARIOS». `ot` se saca del nombre
   (`OT`, `0T`, `OT.`), orden por OT. Caché en memoria de 5 minutos. Si Odoo falla: 502 JSON (o la
   última copia si hay una).
-- `GET /api/v1/inspectores` → `[{id, nombre, legajo}]` (`id` = `hr.employee`). Cabeceras `X-Fuente` (`odoo` | `csv`) y `X-Sin-Vincular`. Caché 5 min.
+- `GET /api/v1/inspectores` → `[{id, nombre, legajo, tipo, empresa}]` (`id` = `x_hys_inspector`, solo activos; `tipo` = `interno` | `externo`). Cabecera `X-Fuente: x_hys_inspector`. Caché 5 min.
 - `GET /api/v1/hitos?ot=<id>` → `[{id, name, fecha_limite, alcanzado}]` (`project.milestone` de la obra). Caché 5 min.
 - `POST /api/v1/inspecciones` → crea la inspección F02 en Odoo (cuerpo = el que arma el celular: `{formulario, idempotency_key, odoo: {model, method, vals}, contexto}`).
   - Valida como el celular (422 con `errores`): OT si ámbito obra, hito si «inicio de hito crítico», inspector, toma de conocimiento y firma, fecha UTC, GPS, `x_cargado_por`, al menos un ítem; cada «No» con gravedad y foto.
@@ -33,19 +29,17 @@ de entorno de Render.
   - Lo pone el servidor: `x_name` = `INS-AAAA-NNNNN` (siguiente del año), `x_fecha_recepcion`, `x_fecha_vencimiento` (= hora del control, porque es una inspección hecha), `x_origen` = `formulario`, `x_estado` = `realizada` (si no vinieron), `x_modalidad` / `x_clase_al_inspeccionar` / `x_clase_motivo` (de `contexto`), `x_presencial_obligatoria`, `x_cant_no`.
   - Fotos en `x_foto` (binario) de cada línea. Envío > 15 MB → **413** con mensaje claro. Errores de datos de Odoo → 422; Odoo caído → 502 (sin detalles internos).
 
-## Inspectores: lista privada (opcional)
+## Inspectores (tabla propia de HyS en Odoo)
 
-Si los legajos no están en Odoo, se puede cargar una lista **privada** (nunca en este repo público), por
-variable `INSPECTORES_CSV` o como *Secret File* de Render en `/etc/secrets/inspectores.csv`:
+Los inspectores **no** salen de empleados ni usuarios de Odoo (los externos tendrían que darse de alta).
+Viven en el modelo `x_hys_inspector` («Inspector HyS»), menú **HyS > Inspectores** (solo grupo Desarrollo):
+`x_name` (nombre), `x_legajo`, `x_tipo` (`interno` | `externo`), `x_empresa`, `x_active` (archivar), `x_notas`.
+MIA (grupo «HyS Servicio API») solo **lee**. El legajo no es único a nivel base (modelo manual): cuidarlo al cargar.
 
-```
-legajo,nombre,employee_id
-1234,Apellido Nombre,
-1235,Otro Apellido,57
-```
-
-Cada fila se vincula a `hr.employee` por `employee_id` (si está) o por nombre igual (sin acentos ni mayúsculas).
-Las que no se vinculan no se listan (el inspector en Odoo es un many2one) y se cuentan en `X-Sin-Vincular`.
+En el `POST`, la inspección guarda `x_inspector_hys_id` (many2one a `x_hys_inspector`) y el servidor pone
+`x_inspector_texto` = «Legajo N · Nombre» (+ «externo · Empresa»). Si el inspector no existe o está archivado → 422.
+`x_inspector_id` (empleado) queda solo como campo anterior: el celular ya no lo manda y el backend lo rechaza
+(payload de una versión vieja → 422 «La app está desactualizada: recargá la página…»).
 
 ## Local
 

@@ -56,6 +56,10 @@ if (EN_LOCAL) {
   try { Object.assign(CONFIG, (await import("./config.local.js")).default || {}); } catch (e) { /* no hay config local */ }
 }
 
+// Seguridad: con datos de EJEMPLO (?dev=1 o localhost sin config local) nunca se envía a Odoo de verdad:
+// los ids de ejemplo (obras, inspectores) no son reales.
+if (CONFIG.OBRAS_FUENTE === "ejemplo") CONFIG.MODO_ENVIO = "simulado";
+
 // Rutas del backend (versión 1 de la API).
 CONFIG.API_V1 = CONFIG.API_BASE + "/api/v1";
 // Compatibilidad con el código anterior (odoo.js usa BACKEND_URL para los catálogos).

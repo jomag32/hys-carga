@@ -8,7 +8,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Campos que el celular NO puede fijar aunque existan en Odoo (los maneja Odoo o la oficina).
 export const PROTEGIDOS_INSPECCION = new Set([
   "id", "x_name", "x_fecha_recepcion", "x_validacion_estado", "x_validacion_comentario", "x_validacion_fecha",
-  "x_validacion_solicitada", "x_validacion_vencida", "x_validador_id", "x_asignado_id", "x_linea_ids"]);
+  "x_validacion_solicitada", "x_validacion_vencida", "x_validador_id", "x_asignado_id", "x_linea_ids",
+  "x_inspector_id",     // empleado (anterior): ya no se usa desde el celular
+  "x_inspector_texto"]); // lo arma el servidor con el registro de x_hys_inspector
 export const PROTEGIDOS_LINEA = new Set(["id", "x_inspeccion_id"]);
 
 const sel = (campos, k) => (campos[k]?.selection || []).map(([v]) => v);
@@ -40,7 +42,10 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
   if (!sel(ci, "x_tipo_programa").includes(v.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
   if (v.x_ambito === "obra" && !Number.isInteger(v.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
   if (v.x_tipo_programa === "hito_critico" && !Number.isInteger(v.x_hito_id)) mal("x_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
-  if (!Number.isInteger(v.x_inspector_id)) mal("x_inspector_id", "Falta el inspector");
+  if (!Number.isInteger(v.x_inspector_hys_id)) {
+    if (v.x_inspector_id !== undefined) mal("x_inspector_hys_id", "La app está desactualizada: recargá la página y volvé a elegir el inspector");
+    else mal("x_inspector_hys_id", "Falta el inspector");
+  }
   if (!v.x_tc_nombre) mal("x_tc_nombre", "Falta quién toma conocimiento");
   if (!v.x_tc_firma) mal("x_tc_firma", "Falta la firma");
   if (!esFecha(v.x_fecha_hora_control)) mal("x_fecha_hora_control", "Falta la fecha y hora del control (UTC «AAAA-MM-DD HH:MM:SS»)");
