@@ -170,9 +170,11 @@ export default {
     // Misma validación que hará el backend (422): si falla, no se encola y el borrador sigue.
     const errores = validarInspeccion(vals);
     if (errores.length) throw new Error(errores.map((x) => x.mensaje).join(" · "));
+    const yo = leerSesion().usuario;
     return {
       operacion: "enviar",
       endpoint: "/inspecciones",
+      auth: { inspector_id: yo?.id ?? null, token: yo?.token || null }, // el backend saca «quién carga» del token
       cuerpo: {
         formulario: "F02",
         idempotency_key: auto.idempotency_key,
@@ -187,7 +189,6 @@ export default {
           desvios_a_generar: cantNo, // un x_hys_desvio por cada «No» (lo crea el backend/Odoo, no este payload)
           campos_pendientes_en_odoo: CAMPOS_PENDIENTES_EN_ODOO,
           inspector_modelo: "x_hys_inspector",
-          cargado_por_inspector_id: leerSesion().usuario?.id ?? null, // el backend verifica que sea un inspector activo
           lugar: obraCorta(leerSesion().obra),
           app: "hys-carga web"
         }

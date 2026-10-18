@@ -51,6 +51,54 @@ export async function leerUsuariosDeIngreso() {
     rol: ROL_INGRESO, fuente: "x_hys_inspector" }));
 }
 
+// ---------------------------------------------------------------- Contraseña por inspector (Jorge 18/10/2026 19:34)
+// POST /api/v1/ingreso {inspector_id, clave} → {token, vence}. Las contraseñas viven SOLO en el backend
+// (variables de entorno de Render, por legajo). Para poder ingresar SIN SEÑAL, después de un ingreso con
+// señal se guarda en este celular una huella (PBKDF2 con sal) de esa contraseña y el token: sin señal,
+// la misma persona entra en el mismo celular con la misma contraseña. Nunca se guarda la contraseña.
+const CLAVE_OFFLINE = "hys_ingresos_offline";
+const normClave = (c) => String(c ?? "").normalize("NFC").trim(); // misma regla que el backend (ñ de Android/iPhone)
+
+async function huella(clave, sal) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(clave), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(sal), iterations: 150000 }, k, 256);
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+const leerOffline = () => { try { return JSON.parse(localStorage.getItem(CLAVE_OFFLINE) || "{}"); } catch (e) { return {}; } };
+
+/** Ingresa a un inspector. → {token, vence, sinVerificar?}. Lanza ErrorApi con el mensaje para mostrar. */
+export async function ingresarInspector(inspectorId, clave) {
+  const c = normClave(clave);
+  if (!c) throw new ErrorApi("Escribí tu contraseña.", 401);
+  // Modo ejemplo (?dev=1 / localhost): no hay backend real; el envío es simulado igual.
+  if (CONFIG.OBRAS_FUENTE !== "backend") return { token: null, vence: null, sinVerificar: true };
+  let r = null, datos = null;
+  try {
+    r = await fetch(`${CONFIG.API_V1}/ingreso`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inspector_id: inspectorId, clave: c }), signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
+    datos = await r.json().catch(() => ({}));
+  } catch (e) { r = null; }
+  if (!r) {
+    // Sin señal: solo si esta persona ya ingresó con señal en este celular y la contraseña coincide.
+    const g = leerOffline()[inspectorId];
+    if (!g) throw new ErrorApi("Sin señal. La primera vez en este celular hace falta señal para ingresar.", 0);
+    if (g.vence && Date.parse(g.vence) < Date.now()) throw new ErrorApi("Sin señal y tu ingreso guardado venció. Ingresá con señal.", 0);
+    if ((await huella(c, g.sal)) !== g.huella) throw new ErrorApi("Contraseña incorrecta.", 401);
+    return { token: g.token, vence: g.vence, sinSenal: true };
+  }
+  if (!r.ok) {
+    if (r.status === 401 || r.status === 403) { const o = leerOffline(); delete o[inspectorId]; localStorage.setItem(CLAVE_OFFLINE, JSON.stringify(o)); }
+    throw new ErrorApi(datos?.error || `El servidor respondió con error ${r.status}`, r.status);
+  }
+  try {
+    const sal = crypto.getRandomValues(new Uint32Array(4)).join("-");
+    const o = leerOffline();
+    o[inspectorId] = { sal, huella: await huella(c, sal), token: datos.token, vence: datos.vence };
+    localStorage.setItem(CLAVE_OFFLINE, JSON.stringify(o));
+  } catch (e) { /* sin crypto.subtle o lleno: solo no habrá ingreso sin señal */ }
+  return { token: datos.token, vence: datos.vence };
+}
+
 // ---------------------------------------------------------------- Obras «en obra» (selector de F02)
 // D-05 (17/10/2026 18:54): el repo es público → los nombres reales de proyectos y clientes NUNCA se
 // suben a GitHub. En producción los sirve el backend hys-carga-api: GET {API_BASE}/api/v1/obras, que
@@ -171,7 +219,8 @@ export async function leerTurnos() {
 /** Error con código HTTP, para que la cola distinga "sin señal" de "rechazado". */
 export class ErrorApi extends Error {
   constructor(mensaje, estado, detalle) { super(mensaje); this.estado = estado; this.detalle = detalle; }
-  get reintentable() { return !this.estado || this.estado >= 500 || this.estado === 429; }
+  // 401 = sesión vencida o contraseña cambiada: queda pendiente hasta que la persona vuelva a ingresar.
+  get reintentable() { return !this.estado || this.estado >= 500 || this.estado === 429 || this.estado === 401; }
 }
 
 // ---------------------------------------------------------------- F02 · x_hys_inspeccion
@@ -260,12 +309,12 @@ export function validarInspeccion(vals) {
  * Envía un formulario a un endpoint del backend. cuerpo = {formulario, idempotency_key, odoo: {model, method, vals}, contexto}.
  * Devuelve {odoo_model, odoo_id, name, simulado?}.
  */
-export async function enviarFormulario(endpoint, cuerpo, { idempotencyKey } = {}) {
+export async function enviarFormulario(endpoint, cuerpo, { idempotencyKey, token } = {}) {
   if (endpoint === "/inspecciones") {
     const errores = validarInspeccion(cuerpo.odoo.vals);
     if (errores.length) throw new ErrorApi(errores.map((x) => x.mensaje).join(" · "), 422, errores);
   }
-  if (CONFIG.MODO_ENVIO === "backend") return llamar(endpoint, cuerpo, idempotencyKey);
+  if (CONFIG.MODO_ENVIO === "backend") return llamar(endpoint, cuerpo, idempotencyKey, token);
   return simulado.enviar(endpoint, cuerpo, idempotencyKey);
 }
 
@@ -308,10 +357,10 @@ export function recortarBase64(o) {
 // /inspecciones sigue el diseño §5.5. Los endpoints genéricos /registros/... de los otros
 // formularios son provisorios. Se ajustan al armar el backend.
 
-async function llamar(ruta, cuerpo, idempotencyKey) {
+async function llamar(ruta, cuerpo, idempotencyKey, tokenEnvio = null) {
   const cabeceras = { "Content-Type": "application/json" };
   if (idempotencyKey) cabeceras["Idempotency-Key"] = idempotencyKey;
-  const token = localStorage.getItem("hys_token_sesion");
+  const token = tokenEnvio || localStorage.getItem("hys_token_sesion");
   if (token) cabeceras.Authorization = `Bearer ${token}`; // token de la persona; NUNCA credenciales de Odoo/MIA
   let r;
   try {

@@ -7,7 +7,7 @@ import { leerSesion, guardarSesion, cerrarSesion, usuarioVigente } from "./compo
 import { selectorObra } from "./componentes/selector-obra.js";
 import { montarAsistente } from "./componentes/asistente.js";
 import { aviso } from "./componentes/campos.js";
-import { leerUsuariosDeIngreso, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
+import { leerUsuariosDeIngreso, ingresarInspector, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
@@ -34,7 +34,9 @@ async function rutear() {
   const ruta = (location.hash.replace(/^#\/?/, "") || "inicio").split("?")[0];
   let s = leerSesion();
   // Sesiones de la lista fija vieja (usuarios de ejemplo): se piden de nuevo con un inspector.
-  if (s.usuario && !usuarioVigente(s.usuario)) { cerrarSesion(); s = leerSesion(); }
+  // Con backend real hace falta el token de la contraseña (ingreso por inspector, 18/10/2026 19:34).
+  if (s.usuario && (!usuarioVigente(s.usuario) || (CONFIG.OBRAS_FUENTE === "backend" && !s.usuario.token)
+    || (s.usuario.vence && Date.parse(s.usuario.vence) < Date.now()))) { cerrarSesion(); s = leerSesion(); }
   const form = FORMULARIOS.find((f) => f.ruta === ruta);
   try {
     if (ruta === "ingresar" || ruta === "obra" || ruta === "sesion") return vistaIngreso();
@@ -74,7 +76,35 @@ function vistaIngreso() {
   const d = { obra: s.obra || undefined };
   const marca = h("div", { class: "ingreso-marca" }, h("b", {}, "HyS · Tecnología ARME"), h("span", {}, "Carga de Higiene y Seguridad en obra"));
   const pasos = (n) => h("div", { class: "pasos-ingreso" },
-    h("span", { class: n === 1 ? "activo" : "" }, "1. Obra"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Quién sos"));
+    h("span", { class: n === 1 ? "activo" : "" }, "1. Obra"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Quién sos"),
+    h("span", {}, "›"), h("span", { class: n === 3 ? "activo" : "" }, "3. Contraseña"));
+  // 3) contraseña propia del inspector (la verifica el backend; sin señal, la huella guardada en este celular).
+  const paso3 = (o, u) => {
+    const error = h("div", { id: "error-ingreso", role: "alert" });
+    const campo = h("input", { type: "password", id: "clave-ingreso", class: "entrada", autocomplete: "current-password",
+      autocapitalize: "off", autocorrect: "off", spellcheck: "false", enterkeyhint: "go",
+      oninput: () => error.replaceChildren(), onkeydown: (e) => { if (e.key === "Enter") entrar(); } });
+    const boton = h("button", { type: "button", class: "btn primario ancho", id: "btn-ingresar", onclick: () => entrar() }, "Ingresar");
+    const entrar = async () => {
+      boton.disabled = true; boton.textContent = "Verificando…"; error.replaceChildren();
+      try {
+        const r = await ingresarInspector(u.id, campo.value);
+        const { id, name, ot, partner_id, user_id, x_mock_km } = o;
+        guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km }, usuario: { ...u, token: r.token, vence: r.vence }, ingreso: ahoraIso() });
+        location.hash = "#/";
+      } catch (e) {
+        error.replaceChildren(aviso(e.message, "error"));
+        boton.disabled = false; boton.textContent = "Ingresar"; campo.select();
+      }
+    };
+    app.replaceChildren(marca, pasos(3), h("h1", {}, u.nombre),
+      h("p", { class: "ayuda" }, [u.legajo ? `Legajo ${u.legajo}` : null, u.rol].filter(Boolean).join(" · ")),
+      h("div", { class: "campo" }, h("label", { class: "etiqueta", for: "clave-ingreso" }, "Tu contraseña"), campo),
+      CONFIG.OBRAS_FUENTE !== "backend" ? aviso("Modo ejemplo: la contraseña no se verifica y nada llega a Odoo.", "info") : "",
+      error, boton,
+      h("button", { type: "button", class: "btn secundario", id: "btn-otro-nombre", onclick: () => paso2(o) }, "← No soy yo"));
+    campo.focus();
+  };
   const paso1 = () => app.replaceChildren(marca, pasos(1), h("h1", {}, "Ingresar"),
     selectorObra(d, "obra", { etiqueta: "¿En qué obra o lugar estás?", incluirPlanta: true, alCambiar: (o) => paso2(o) }),
     bloqueInstalar());
@@ -88,13 +118,8 @@ function vistaIngreso() {
       h("p", { class: "ayuda" }, "Inspectores de HyS activos. Elegí tu nombre: nadie carga por otro."),
       usuarios.length ? h("div", { class: "lista-botones", id: "lista-usuarios" }, usuarios.map((u) => h("button", {
         type: "button", class: "btn-lista", "data-usuario-id": u.id,
-        onclick: () => {
-          const { id, name, ot, partner_id, user_id, x_mock_km } = o;
-          guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km }, usuario: u, ingreso: ahoraIso() });
-          location.hash = "#/";
-        }
+        onclick: () => paso3(o, u)
       }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
-      aviso("Acceso con PIN u otro método: pendiente de definir. Por ahora solo se elige el nombre.", "info"),
       h("button", { type: "button", class: "btn secundario", id: "btn-cambiar-obra", onclick: paso1 }, "← Cambiar obra"));
   };
   paso1();

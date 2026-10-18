@@ -7,7 +7,7 @@
 //   Tampoco toca nada que no sea GET. La cola sin señal (IndexedDB) es de la página, no de acá.
 // · VERSION: subirla cuando cambie este archivo o la lista CASCARA. El SW nuevo se instala, toma
 //   control enseguida y la página se recarga sola (o al volver al inicio si hay un formulario abierto).
-const VERSION = "2026-10-18.2";
+const VERSION = "2026-10-18.3";
 const CACHE = `hys-carga-cascara-${VERSION}`;
 const RED_MS = 4000;
 

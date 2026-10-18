@@ -107,7 +107,7 @@ export function crearInspecciones(cliente, catalogos) {
   }
 
   /** soloValidar (uso interno/pruebas, no expuesto por HTTP): arma los vals finales sin crear nada. */
-  async function recibir(cuerpo, { claveCabecera, soloValidar = false } = {}) {
+  async function recibir(cuerpo, { claveCabecera, soloValidar = false, sesion = null } = {}) {
     const c = await leerCampos();
     const { errores, vals, descartados } = validarYFiltrar(cuerpo, c, { claveCabecera });
     if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores, descartados });
@@ -125,9 +125,10 @@ export function crearInspecciones(cliente, catalogos) {
 
       // Quién carga: tiene que ser un inspector ACTIVO de x_hys_inspector (los únicos que pueden ingresar).
       // x_cargado_por lo arma el servidor con ese registro (no se confía en el texto del celular).
+      // El id sale de la sesión verificada (token de POST /api/v1/ingreso), no del cuerpo.
       const ctxEnvio = cuerpo.contexto || {};
-      const idCargador = ctxEnvio.cargado_por_inspector_id;
-      if (!Number.isInteger(idCargador)) throw new ErrorEntrada(422, "La app está desactualizada: tocá «Salir», recargá la página y volvé a ingresar con tu nombre.");
+      const idCargador = sesion?.inspector_id;
+      if (!Number.isInteger(idCargador)) throw new ErrorEntrada(401, "Tu sesión venció o cambió tu contraseña: tocá «Salir» y volvé a ingresar con tu contraseña.");
       const cargador = idCargador === inspector.id ? inspector : await catalogos.buscarInspector(idCargador);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como inspector activo en Odoo (HyS > Inspectores). Avisá a HyS.");
       if (c.inspeccion.x_cargado_por) {

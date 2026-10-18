@@ -16,6 +16,7 @@
 
 import { CONFIG } from "./config.js";
 import { crearRegistro, escribirRegistro, enviarFormulario } from "./odoo.js";
+import { leerSesion } from "../componentes/sesion.js";
 
 const CLAVE_LS = "hys_cola";
 const oyentes = new Set();
@@ -101,7 +102,10 @@ export function procesarCola() {
 }
 
 async function mandar(e) {
-  const op = { idempotencyKey: e.idempotency_key };
+  // Token de quien cargó (guardado al encolar); si esa misma persona volvió a ingresar, el token nuevo.
+  const s = leerSesion();
+  const token = s.usuario && e.auth && s.usuario.id === e.auth.inspector_id && s.usuario.token ? s.usuario.token : e.auth?.token || null;
+  const op = { idempotencyKey: e.idempotency_key, token };
   if (e.operacion === "enviar") return enviarFormulario(e.endpoint, e.cuerpo, op);
   if (e.operacion === "escribir") return escribirRegistro(e.modelo, e.ids, e.valores, op);
   return crearRegistro(e.modelo, e.valores, op);

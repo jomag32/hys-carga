@@ -60,10 +60,13 @@ El repo `jomag32/hys-carga` **queda público**. Por eso:
 ## Quién ingresa (decisión de Jorge 18/10/2026 19:24)
 
 - Ingresan **solo los inspectores activos** de la tabla propia de HyS en Odoo (`x_hys_inspector`, `x_active`), los mismos de `GET /api/v1/inspectores`. Un inspector archivado no aparece ni puede enviar. Se dan de alta/baja en Odoo (HyS > Inspectores); no hace falta tocar la app.
-- Ingresar = 1) elegir la obra, 2) elegir tu nombre («Nombre · Legajo N · Inspector HyS»). Sin PIN ni contraseña (método de acceso **pendiente**, §7.4 #4). Todos los inspectores están habilitados en todas las obras (la tabla no tiene obras ni rol por persona).
-- Sin señal se usa la última lista leída en ese celular (la primera vez hace falta señal).
+- Ingresar = 1) elegir la obra, 2) elegir tu nombre («Nombre · Legajo N · Inspector HyS»), 3) **tu contraseña** (una por inspector, Jorge 18/10/2026 19:34). La verifica el backend (`POST /api/v1/ingreso`) y devuelve un token de sesión (60 días) con el que se firman los envíos.
+- **Contraseñas:** solo en variables de entorno del backend en Render, una por legajo: `HYS_PWD_<legajo>` (p. ej. `HYS_PWD_0001`). Alternativa: `HYS_LOGIN_PASSWORDS` = JSON `{"0001": "…"}` (si están las dos, gana `HYS_PWD_<legajo>`). Nunca en este repo ni en Odoo. Inspector activo sin contraseña configurada → «Este inspector no tiene contraseña configurada, consultá a HyS». Se comparan en Unicode NFC y sin espacios en las puntas (la «ñ» de Android/iPhone). Cambiar la contraseña de un legajo invalida sus sesiones. 8 intentos fallidos → 15 min de bloqueo para ese inspector. Opcional: `HYS_SESSION_SECRET` para firmar sesiones (si no está, se usa la credencial de servicio; si cambia, todos vuelven a ingresar).
+- **Sin señal:** después de un ingreso con señal, el celular guarda una huella (PBKDF2) de esa contraseña y el token, nunca la contraseña: esa persona puede volver a entrar sin señal en ese celular. La primera vez hace falta señal.
+- Lo que quedó en la cola se manda con el token de quien lo cargó; si venció, queda «En el celular» hasta que esa persona vuelva a ingresar. Todos los inspectores están habilitados en todas las obras (la tabla no tiene obras ni rol por persona).
+- Sin señal se usa la última lista de inspectores leída en ese celular.
 - Las sesiones de la lista fija anterior (usuarios de ejemplo) se descartan solas: piden ingresar de nuevo.
-- `x_cargado_por` = `Legajo N · Nombre · Inspector HyS · OT 9101`. En F02 el backend **verifica** que quien carga (`contexto.cargado_por_inspector_id`) sea un inspector activo (si no, 422) y arma ese texto con el registro de Odoo.
+- `x_cargado_por` = `Legajo N · Nombre · Inspector HyS · OT 9101`. En F02 el backend toma a quien carga **del token** (no del cuerpo), verifica que siga activo (si no, 422; sin token válido, 401) y arma ese texto con el registro de Odoo.
 - En F02 el inspector del formulario viene precargado con quien ingresó (se puede cambiar).
 - Con datos de ejemplo (`?dev=1` o localhost sin configuración local) la lista es de inspectores **de ejemplo** (`api/datos-mock.js`) y el envío es siempre simulado.
 

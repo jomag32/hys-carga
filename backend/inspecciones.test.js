@@ -53,7 +53,8 @@ const cuerpo = (k = clave(), fecha = "2026-10-18 12:00:00") => ({ formulario: "F
 // Inspectores activos de ejemplo: 9 (el elegido en el formulario) y 10 (quien carga). 11 = archivado.
 const ACTIVOS = { 9: { id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }, 10: { id: 10, x_name: "Cargador Ejemplo", x_legajo: "2" } };
 const catalogosFalsos = { buscarInspector: async (id) => ACTIVOS[id] || null };
-const armar = (o) => { const f = odooFalso(o); return { ...f, api: crearInspecciones(() => f.cliente, catalogosFalsos) }; };
+const conSesion = (api, sesion = { inspector_id: 10 }) => ({ ...api, recibir: (c, o = {}) => api.recibir(c, { sesion, ...o }) });
+const armar = (o) => { const f = odooFalso(o); return { ...f, api: conSesion(crearInspecciones(() => f.cliente, catalogosFalsos)) }; };
 const nombres = (db) => db.map((r) => r.x_name).sort();
 
 test("numeroDe / formatoNumero", () => {
@@ -137,7 +138,7 @@ test("error de unicidad en create → reintenta con el siguiente número", async
     if (met === "create" && primera) { primera = false; f.db.push({ id: 50, x_name: args[0][0].x_name }); throw new ErrorOdoo("Odoo: error", { tipo: "psycopg2.errors.UniqueViolation", detalle: "duplicate key value violates unique constraint" }); }
     return f.cliente.ejecutar(m, met, args, kw);
   } };
-  const api = crearInspecciones(() => cliente, catalogosFalsos);
+  const api = conSesion(crearInspecciones(() => cliente, catalogosFalsos));
   const r = await api.recibir(cuerpo());
   assert.equal(r.cuerpo.name, "INS-2026-00002");
 });
@@ -163,11 +164,18 @@ test("quien carga: x_cargado_por lo arma el servidor con el inspector activo", a
   assert.equal(db[0].x_cargado_por, "Legajo 2 · Cargador Ejemplo · Inspector HyS · OT 9101");
 });
 
-test("quien carga: sin id (app vieja) o inspector archivado → 422 y no se crea nada", async () => {
-  const { api, db } = armar();
-  const viejo = cuerpo(); delete viejo.contexto;
-  await assert.rejects(api.recibir(viejo), (e) => e.estado === 422 && /desactualizada/.test(e.message));
-  const archivado = cuerpo(); archivado.contexto.cargado_por_inspector_id = 11;
-  await assert.rejects(api.recibir(archivado), (e) => e.estado === 422 && /inspector activo/.test(e.message));
-  assert.equal(db.length, 0);
+test("quien carga: sin sesión → 401; inspector de la sesión archivado → 422; no se crea nada", async () => {
+  const f = odooFalso();
+  const api = crearInspecciones(() => f.cliente, catalogosFalsos);
+  await assert.rejects(api.recibir(cuerpo()), (e) => e.estado === 401 && /sesión/.test(e.message));
+  await assert.rejects(api.recibir(cuerpo(), { sesion: { inspector_id: 11 } }), (e) => e.estado === 422 && /inspector activo/.test(e.message));
+  assert.equal(f.db.length, 0);
+});
+
+test("quien carga sale de la sesión, no del cuerpo", async () => {
+  const f = odooFalso();
+  const api = crearInspecciones(() => f.cliente, catalogosFalsos);
+  const c = cuerpo(); c.contexto.cargado_por_inspector_id = 9; // intento de cargar «como» otro
+  await api.recibir(c, { sesion: { inspector_id: 10 } });
+  assert.match(f.db[0].x_cargado_por, /^Legajo 2 · Cargador Ejemplo/);
 });
