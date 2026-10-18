@@ -32,13 +32,78 @@ export function crearInspecciones(cliente, catalogos) {
     return r[0] || null;
   }
 
-  /** INS-AAAA-NNNNN: siguiente número del año (solo cuenta los nombres que empiezan con INS-AAAA-). */
-  async function siguienteNombre(anio) {
+  // ---- Numeración INS-AAAA-NNNNN ----
+  // · Máximo (no conteo) de los números del año que existen en Odoo, leyendo TODOS los nombres que
+  //   contienen «INS-AAAA-» (también los de prueba con prefijo «PRUEBA - borrar (INS-…)» y archivados
+  //   si algún día el modelo tiene active). Comparación numérica, no de texto.
+  // · Nunca por debajo del último número que dio este proceso (por si Odoo tarda en mostrarlo).
+  // · Asignación + create en serie dentro del proceso (una sola instancia en Render).
+  // · Después del create se verifica que nadie más tenga ese número (otro proceso, prueba local,
+  //   carga a mano); si choca, el registro más nuevo (id mayor) se renumera.
+  // Los números de registros borrados pueden volver a usarse (solo se mira lo que existe).
+  const ultimoDado = new Map(); // año → último número asignado por este proceso
+  let cola = Promise.resolve();
+  function enSerie(fn) {
+    const p = cola.then(fn, fn);
+    cola = p.catch(() => {});
+    return p;
+  }
+
+  async function leerUsados(anio, numero = null) {
     const pref = `INS-${anio}-`;
-    const r = await cliente().ejecutar("x_hys_inspeccion", "search_read", [[["x_name", "=like", `${pref}%`]]],
-      { fields: ["x_name"], order: "x_name desc", limit: 1 });
-    const n = r[0] ? Number(String(r[0].x_name).slice(pref.length).match(/^\d+/)?.[0] || 0) : 0;
-    return `${pref}${String(n + 1).padStart(5, "0")}`;
+    const r = await cliente().ejecutar("x_hys_inspeccion", "search_read", [[["x_name", "ilike", numero || pref]]],
+      { fields: ["id", "x_name"], context: { active_test: false } });
+    return (r || []).map((x) => ({ id: x.id, n: numeroDe(x.x_name, anio) })).filter((x) => x.n !== null);
+  }
+
+  async function siguienteNumero(anio) {
+    const usados = await leerUsados(anio);
+    const max = Math.max(0, ultimoDado.get(anio) || 0, ...usados.map((x) => x.n));
+    return formatoNumero(anio, max + 1);
+  }
+
+  /** ¿Algún registro con id menor tiene el mismo número? (el de id menor se queda con él). */
+  async function chocaCon(anio, numero, id) {
+    const n = numeroDe(numero, anio);
+    const iguales = (await leerUsados(anio, numero)).filter((x) => x.n === n);
+    return iguales.some((x) => x.id < id);
+  }
+
+  const nombreCon = (numero) => {
+    const prefijo = process.env.INSPECCION_PREFIJO_PRUEBA; // solo pruebas: «PRUEBA - borrar (INS-…)»
+    return prefijo ? `${prefijo} (${numero})` : numero;
+  };
+
+  /** Crea con número único; devuelve {id, name}. Corre en serie. */
+  function crearNumerado(vals, anio, clave) {
+    return enSerie(async () => {
+      let id = null;
+      for (let intento = 0; intento < 5; intento++) {
+        const numero = await siguienteNumero(anio);
+        const nombre = nombreCon(numero);
+        if (id === null) {
+          vals.x_name = nombre;
+          try {
+            const r = await cliente().ejecutar("x_hys_inspeccion", "create", [[vals]]);
+            id = Array.isArray(r) ? r[0] : r;
+          } catch (e) {
+            // ¿Otro envío con la misma clave entró justo antes? → devolver ese.
+            const otro = await buscarPorClave(clave).catch(() => null);
+            if (otro) return { id: otro.id, name: otro.x_name, repetido: true };
+            if (e instanceof ErrorOdoo && /unique|duplicate|ya existe/i.test(e.detalle || "")) continue; // número tomado
+            throw e;
+          }
+        } else {
+          await cliente().ejecutar("x_hys_inspeccion", "write", [[id], { x_name: nombre }]);
+        }
+        if (!(await chocaCon(anio, numero, id))) {
+          ultimoDado.set(anio, Math.max(ultimoDado.get(anio) || 0, numeroDe(numero, anio)));
+          return { id, name: nombre };
+        }
+        // Choque: otro registro más viejo ya tiene este número → renumerar el nuestro.
+      }
+      throw new ErrorOdoo("No se pudo asignar un número de inspección único; reintentá en un momento");
+    });
   }
 
   /** soloValidar (uso interno/pruebas, no expuesto por HTTP): arma los vals finales sin crear nada. */
@@ -79,22 +144,8 @@ export function crearInspecciones(cliente, catalogos) {
       if (soloValidar) return { estado: 200, cuerpo: { simulado: true, vals, descartados } };
 
       const anio = (vals.x_fecha_hora_control || ahora).slice(0, 4);
-      const prefijo = process.env.INSPECCION_PREFIJO_PRUEBA; // solo pruebas: «PRUEBA - borrar (INS-…)»
-      for (let intento = 0; intento < 3; intento++) {
-        const numero = await siguienteNombre(anio);
-        vals.x_name = prefijo ? `${prefijo} (${numero})` : numero;
-        try {
-          const r = await cliente().ejecutar("x_hys_inspeccion", "create", [[vals]]);
-          const id = Array.isArray(r) ? r[0] : r;
-          return { estado: 201, cuerpo: respuesta(id, vals.x_name, { descartados }) };
-        } catch (e) {
-          // ¿Otro envío con la misma clave entró justo antes? → devolver ese.
-          const otro = await buscarPorClave(clave).catch(() => null);
-          if (otro) return { estado: 200, cuerpo: respuesta(otro.id, otro.x_name, { repetido: true, descartados }) };
-          if (e instanceof ErrorOdoo && /unique|duplicate|ya existe/i.test(e.detalle || "") && intento < 2) continue; // número tomado
-          throw e;
-        }
-      }
+      const r = await crearNumerado(vals, anio, clave);
+      return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...(r.repetido ? { repetido: true } : {}) }) };
     })().finally(() => enCurso.delete(clave));
     if (!soloValidar) enCurso.set(clave, p);
     return p;
@@ -102,5 +153,12 @@ export function crearInspecciones(cliente, catalogos) {
 
   return { recibir, leerCampos };
 }
+
+/** Número NNNNN de un nombre «…INS-AAAA-NNNNN…» (con o sin prefijo de prueba); null si no es de ese año. */
+export function numeroDe(nombre, anio) {
+  const m = String(nombre ?? "").match(new RegExp(`(?:^|[^A-Za-z0-9])INS-${anio}-(\\d+)(?!\\d)`, "i"));
+  return m ? Number(m[1]) : null;
+}
+export const formatoNumero = (anio, n) => `INS-${anio}-${String(n).padStart(5, "0")}`;
 
 const respuesta = (id, name, extra) => ({ odoo_model: "x_hys_inspeccion", odoo_id: id, id, name, ...extra });
