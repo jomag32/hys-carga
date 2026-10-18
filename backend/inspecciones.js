@@ -1,0 +1,96 @@
+// POST /api/v1/inspecciones → create de x_hys_inspeccion (+ x_linea_ids) en Odoo con MIA.
+// Idempotente por x_idempotency_key: si ya existe, devuelve el registro existente (200) sin duplicar.
+import { validarYFiltrar } from "./validar.js";
+import { ErrorOdoo } from "./odoo.js";
+
+const CAMPOS_MS = 10 * 60 * 1000;
+const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
+
+export class ErrorEntrada extends Error {
+  constructor(estado, mensaje, extra = {}) { super(mensaje); this.estado = estado; this.extra = extra; }
+}
+
+export function crearInspecciones(cliente) {
+  let campos = null, camposHasta = 0;
+  const enCurso = new Map(); // clave → promesa (dos envíos simultáneos con la misma clave = uno solo)
+
+  async function leerCampos() {
+    if (campos && Date.now() < camposHasta) return campos;
+    const attrs = { attributes: ["type", "readonly", "required", "selection", "relation"] };
+    const [inspeccion, linea] = await Promise.all([
+      cliente().ejecutar("x_hys_inspeccion", "fields_get", [], attrs),
+      cliente().ejecutar("x_hys_inspeccion_linea", "fields_get", [], attrs)]);
+    campos = { inspeccion, linea };
+    camposHasta = Date.now() + CAMPOS_MS;
+    return campos;
+  }
+
+  async function buscarPorClave(clave) {
+    const r = await cliente().ejecutar("x_hys_inspeccion", "search_read", [[["x_idempotency_key", "=", clave]]],
+      { fields: ["id", "x_name"], limit: 1 });
+    return r[0] || null;
+  }
+
+  /** INS-AAAA-NNNNN: siguiente número del año (solo cuenta los nombres que empiezan con INS-AAAA-). */
+  async function siguienteNombre(anio) {
+    const pref = `INS-${anio}-`;
+    const r = await cliente().ejecutar("x_hys_inspeccion", "search_read", [[["x_name", "=like", `${pref}%`]]],
+      { fields: ["x_name"], order: "x_name desc", limit: 1 });
+    const n = r[0] ? Number(String(r[0].x_name).slice(pref.length).match(/^\d+/)?.[0] || 0) : 0;
+    return `${pref}${String(n + 1).padStart(5, "0")}`;
+  }
+
+  async function recibir(cuerpo, { claveCabecera } = {}) {
+    const c = await leerCampos();
+    const { errores, vals, descartados } = validarYFiltrar(cuerpo, c, { claveCabecera });
+    if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores, descartados });
+    const clave = vals.x_idempotency_key;
+    if (enCurso.has(clave)) return enCurso.get(clave);
+    const p = (async () => {
+      const ya = await buscarPorClave(clave);
+      if (ya) return { estado: 200, cuerpo: respuesta(ya.id, ya.x_name, { repetido: true, descartados }) };
+
+      // Campos que pone el servidor (si existen en el modelo).
+      const ci = c.inspeccion;
+      const pon = (k, x) => { if (ci[k] && !ci[k].readonly && x !== undefined && x !== null && x !== false) vals[k] = x; };
+      const ahora = new Date().toISOString().slice(0, 19).replace("T", " ");
+      if (vals.x_origen === undefined) pon("x_origen", "formulario");
+      if (vals.x_estado === undefined) pon("x_estado", "realizada");
+      if (!vals.x_fecha_vencimiento) pon("x_fecha_vencimiento", vals.x_fecha_hora_control); // fuera de programa: vence al hacerse
+      pon("x_fecha_recepcion", ahora);
+      const ctx = cuerpo.contexto || {};
+      if (ctx.modalidad && (ci.x_modalidad?.selection || []).some(([v]) => v === ctx.modalidad)) pon("x_modalidad", ctx.modalidad);
+      if ((ci.x_clase_al_inspeccionar?.selection || []).some(([v]) => v === ctx.clase_al_inspeccionar)) pon("x_clase_al_inspeccionar", ctx.clase_al_inspeccionar);
+      if (typeof ctx.clase_motivo === "string") pon("x_clase_motivo", ctx.clase_motivo.slice(0, 250));
+      if (ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = PRESENCIAL_OBLIGATORIA.includes(vals.x_tipo_programa);
+      const cantNo = vals.x_linea_ids.filter(([, , l]) => l.x_respuesta === "no").length;
+      if (ci.x_cant_no && !ci.x_cant_no.readonly) vals.x_cant_no = cantNo;
+      // Secuencia de las líneas si no vino.
+      vals.x_linea_ids.forEach(([, , l], i) => { if (c.linea.x_secuencia && l.x_secuencia === undefined) l.x_secuencia = i + 1; });
+
+      const anio = (vals.x_fecha_hora_control || ahora).slice(0, 4);
+      const prefijo = process.env.INSPECCION_PREFIJO_PRUEBA; // solo pruebas: «PRUEBA - borrar (INS-…)»
+      for (let intento = 0; intento < 3; intento++) {
+        const numero = await siguienteNombre(anio);
+        vals.x_name = prefijo ? `${prefijo} (${numero})` : numero;
+        try {
+          const r = await cliente().ejecutar("x_hys_inspeccion", "create", [[vals]]);
+          const id = Array.isArray(r) ? r[0] : r;
+          return { estado: 201, cuerpo: respuesta(id, vals.x_name, { descartados }) };
+        } catch (e) {
+          // ¿Otro envío con la misma clave entró justo antes? → devolver ese.
+          const otro = await buscarPorClave(clave).catch(() => null);
+          if (otro) return { estado: 200, cuerpo: respuesta(otro.id, otro.x_name, { repetido: true, descartados }) };
+          if (e instanceof ErrorOdoo && /unique|duplicate|ya existe/i.test(e.detalle || "") && intento < 2) continue; // número tomado
+          throw e;
+        }
+      }
+    })().finally(() => enCurso.delete(clave));
+    enCurso.set(clave, p);
+    return p;
+  }
+
+  return { recibir, leerCampos };
+}
+
+const respuesta = (id, name, extra) => ({ odoo_model: "x_hys_inspeccion", odoo_id: id, id, name, ...extra });

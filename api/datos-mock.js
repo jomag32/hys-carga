@@ -138,11 +138,11 @@ export const OBRAS = [
   {id: 106, name: "OT 9106 - Portones Ejemplo", ot: "9106", partner_id: [901, "Cliente Ejemplo A"], user_id: [201, "Director de Obra Ejemplo 1"], x_mock_km: 35}
 ];
 
-// hr.employee · x_mock_roles es solo del mock (para filtrar listas); en Odoo saldrá de grupos/puestos.
+// hr.employee · x_mock_roles y x_legajo (legajos de EJEMPLO) son solo del mock (para filtrar listas); en Odoo saldrá de grupos/puestos.
 export const EMPLEADOS = [
-  {id: 11, name: "Gerente HyS Ejemplo", job_title: "Gerente HyS", x_mock_roles: ["inspector", "hys"]},
-  {id: 12, name: "Inspector HyS Ejemplo", job_title: "HyS", x_mock_roles: ["inspector", "hys"]},
-  {id: 13, name: "Ing. asesora de HyS", job_title: "Asesora HyS", x_mock_roles: ["inspector"]},
+  {id: 11, name: "Gerente HyS Ejemplo", job_title: "Gerente HyS", x_mock_roles: ["inspector", "hys"], x_legajo: "9011"},
+  {id: 12, name: "Inspector HyS Ejemplo", job_title: "HyS", x_mock_roles: ["inspector", "hys"], x_legajo: "9012"},
+  {id: 13, name: "Ing. asesora de HyS", job_title: "Asesora HyS", x_mock_roles: ["inspector"], x_legajo: "9013"},
   {id: 14, name: "Director de Obra Ejemplo 1", job_title: "Director de Obra", x_mock_roles: ["director"]},
   {id: 15, name: "Director de Obra Ejemplo 2", job_title: "Director de Obra", x_mock_roles: ["director"]},
   {id: 16, name: "Jefe de Producción Ejemplo", job_title: "Jefe de Producción", x_mock_roles: ["fabrica"]},

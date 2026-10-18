@@ -10,7 +10,8 @@ import { campoOpciones, campoSelect, campoTexto, campoArea, campoFirma, aviso } 
 import { selectorObra } from "../componentes/selector-obra.js";
 import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } from "../componentes/checklist.js";
 import { camposControl } from "../componentes/campos-auto.js";
-import { leerRegistros, aFormatoOdoo, validarInspeccion, SELECCION, CAMPOS_PENDIENTES_EN_ODOO } from "../api/odoo.js";
+import { selectorInspector, textoInspector } from "../componentes/selector-inspector.js";
+import { leerRegistros, leerInspectores, leerHitosObra, aFormatoOdoo, validarInspeccion, SELECCION, CAMPOS_PENDIENTES_EN_ODOO } from "../api/odoo.js";
 
 const KM_REMOTA = 50; // x_hys_config.x_distancia_remota_km
 const CLASES = { A: "Clase A · Alto riesgo", B: "Clase B · Riesgo medio", C: "Clase C · Bajo riesgo" };
@@ -23,18 +24,20 @@ const esObra = (d) => d.ambito === "obra";
 const ficha = (d, ctx) => (esObra(d) ? ctx.fichas.find((f) => f.x_ot_id[0] === d.obra?.id && f.x_estado === "aprobada") : null);
 const riesgosObra = (d, ctx) => ficha(d, ctx)?.x_riesgo_ids || [];
 const itemsDeLaObra = (d, ctx) => [...generales(ctx), ...ctx.riesgos.filter((r) => riesgosObra(d, ctx).includes(r.id)).flatMap((r) => deRiesgo(ctx, r.id))];
-const hitosCriticos = (d, ctx) => ctx.hitos.filter((x) => x.project_id[0] === d.obra?.id && x.x_riesgo_hys === "critico");
+// Hitos de la obra (project.milestone): se piden al elegir «Inicio de hito crítico» (backend: GET /api/v1/hitos?ot=).
+const hitosDe = (d, ctx) => ctx.hitosPorObra[d.obra?.id]; // undefined = sin pedir; [] = la obra no tiene hitos
+const inspectorValido = (d, ctx) => ctx.inspectores.some((e) => e.id === d.inspector_id);
 
 export default {
   codigo: "F02",
   titulo: "Inspección de obra",
   async preparar(ctx) {
-    [ctx.items, ctx.riesgos, ctx.fichas, ctx.inspectores, ctx.hitos] = await Promise.all([
+    ctx.hitosPorObra = {};
+    [ctx.items, ctx.riesgos, ctx.fichas, ctx.inspectores] = await Promise.all([
       leerRegistros("x_hys_item_plantilla", [["x_formulario", "=", "F02"], ["x_active", "=", true]]),
       leerRegistros("x_hys_riesgo", [], ["x_codigo", "x_name"]),
       leerRegistros("x_hys_ficha", [], ["x_ot_id", "x_estado", "x_riesgo_ids", "x_clase_riesgo", "x_clase_motivo", "x_distancia_km"]),
-      leerRegistros("hr.employee", [["x_mock_roles", "in", ["inspector"]]], ["name", "job_title"]),
-      leerRegistros("project.milestone", [], ["name", "project_id", "x_riesgo_hys"])
+      leerInspectores() // [{id, nombre, legajo}] de hr.employee (backend) o ejemplos
     ]);
     ctx.items.sort((a, b) => a.x_secuencia - b.x_secuencia);
   },
@@ -63,16 +66,33 @@ export default {
             info.replaceChildren(!d.obra ? "" : f
               ? aviso(`${CLASES[f.x_clase_riesgo] || "Sin clase"} — ${f.x_clase_motivo || ""}`, f.x_clase_riesgo === "A" ? "alerta" : "info")
               : aviso("Esta obra no tiene Ficha de Riesgos aprobada: es Clase A y solo se cargan los 6 ítems generales. Queda pendiente la Ficha.", "alerta"));
-            hito.replaceChildren(d.tipo_programa === "hito_critico" && d.obra
-              ? campoSelect(d, "hito_id", "Hito crítico que arrancó", hitosCriticos(d, ctx).map((x) => [x.id, x.name]),
-                { requerido: true, ayuda: "Inspección presencial dentro de las 72 h del inicio real del hito." })
-              : "");
+            hito.replaceChildren(d.tipo_programa === "hito_critico" && d.obra ? cajaHito() : "");
           };
+          const cajaHito = () => {
+            const lista = hitosDe(d, ctx);
+            if (lista === undefined) {
+              const obraId = d.obra.id;
+              leerHitosObra(obraId).then((l) => { ctx.hitosPorObra[obraId] = l; })
+                .catch((e) => { ctx.hitosPorObra[obraId] = null; ctx.errorHitos = e.message; })
+                .finally(() => { if (d.obra?.id === obraId) pintar(); });
+              return h("p", { class: "ayuda cargando-obras" }, "⏳ Cargando hitos de la obra…");
+            }
+            if (lista === null) return h("div", { class: "aviso error" }, `No se pudieron leer los hitos: ${ctx.errorHitos || ""}`,
+              h("br"), h("button", { type: "button", class: "btn secundario", onclick: () => { delete ctx.hitosPorObra[d.obra.id]; pintar(); } }, "Reintentar"));
+            if (!lista.length) { d.hito_id = null; return aviso("Esta obra no tiene hitos cargados en Odoo. El inicio de hito crítico necesita un hito: cargalo en el proyecto de Odoo o elegí otro tipo de inspección.", "alerta"); }
+            if (!lista.some((x) => x.id === d.hito_id)) d.hito_id = null;
+            return campoSelect(d, "hito_id", "Hito crítico que arrancó", lista.map((x) => [x.id, x.name]),
+              { requerido: true, ayuda: "Inspección presencial dentro de las 72 h del inicio real del hito." });
+          };
+          // selectorObra primero: deja marcada la obra del ingreso (d.obra) antes de pintar hito e info.
+          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", alCambiar: () => { d.respuestas = {}; d.hito_id = null; pintar(); } });
           pintar();
-          return [selectorObra(d, "obra", { etiqueta: "Obra (OT)", alCambiar: () => { d.respuestas = {}; d.hito_id = null; pintar(); } }), hito, info];
+          return [selector, hito, info];
         },
-        validar: (d) => (!d.obra ? "Elegí la obra (OT): es obligatoria si el ámbito es Obra." :
-          d.tipo_programa === "hito_critico" && !d.hito_id ? "Elegí el hito crítico." : null)
+        validar: (d, ctx) => (!d.obra ? "Elegí la obra (OT): es obligatoria si el ámbito es Obra." :
+          d.tipo_programa === "hito_critico" && !d.hito_id
+            ? (hitosDe(d, ctx)?.length === 0 ? "Esta obra no tiene hitos en Odoo: no se puede cargar un inicio de hito crítico. Elegí otro tipo." : "Elegí el hito crítico.")
+            : null)
       },
       {
         titulo: "Modalidad e inspector",
@@ -85,9 +105,9 @@ export default {
             campoOpciones(d, "modalidad", "Modalidad", [["presencial", "Presencial"], ["remota", "Remota", { deshabilitado: !remotaOk }]],
               { columnas: 2, requerido: true, ayuda: !esObra(d) ? "Fuera de obra: presencial." : obligatoria ? "Apertura e inicio de hito crítico: presencial obligatoria."
                 : km <= KM_REMOTA ? `Obra a ${km} km: solo presencial.` : `Obra a ${km} km: puede ser remota.` }),
-            campoSelect(d, "inspector_id", "Inspector", ctx.inspectores.map((e) => [e.id, `${e.name} · ${e.job_title}`]), { requerido: true })];
+            selectorInspector(d, "inspector_id", ctx.inspectores, { etiqueta: "Inspector" })];
         },
-        validar: (d) => (!d.inspector_id ? "Elegí el inspector." : null)
+        validar: (d, ctx) => (!inspectorValido(d, ctx) ? "Elegí el inspector." : null)
       },
       {
         titulo: "Ítems generales",
@@ -118,9 +138,9 @@ export default {
       ["Ámbito", etiqueta("x_ambito", d.ambito)],
       ["Tipo", etiqueta("x_tipo_programa", d.tipo_programa)],
       ...(esObra(d) ? [["Obra", d.obra?.name], ["Clase", f ? CLASES[f.x_clase_riesgo] : "Clase A (sin Ficha)"]] : []),
-      ...(d.tipo_programa === "hito_critico" ? [["Hito", ctx.hitos.find((x) => x.id === d.hito_id)?.name]] : []),
+      ...(d.tipo_programa === "hito_critico" ? [["Hito", (hitosDe(d, ctx) || []).find((x) => x.id === d.hito_id)?.name]] : []),
       ["Modalidad", d.modalidad === "remota" ? "Remota" : "Presencial"],
-      ["Inspector", ctx.inspectores.find((e) => e.id === d.inspector_id)?.name],
+      ["Inspector", textoInspector(ctx.inspectores.find((e) => e.id === d.inspector_id))],
       ["Ítems", resumenChecklist(itemsDeLaObra(d, ctx), d)],
       ["Tomó conocimiento", d.tc_nombre]];
   },

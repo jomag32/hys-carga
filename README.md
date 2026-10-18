@@ -30,6 +30,8 @@ Solo README inicial. Todavía no hay código ni despliegue en Render.
 
 **Actualización 18/10/2026:** hay **backend** (`backend/`, servicio **`hys-carga-api`** en Render, <https://hys-carga-api.onrender.com>). Por ahora solo **lee** de Odoo la lista de obras (`GET /api/v1/obras`, con la cuenta de servicio MIA). La app ya usa esa lista real en producción. El envío de inspecciones **sigue en modo simulado** (`POST /api/v1/inspecciones` responde 501).
 
+**Actualización 18/10/2026 (mañana):** el backend ya sabe **crear la inspección F02 de verdad en Odoo** (`POST /api/v1/inspecciones`, idempotente) y sirve **inspectores** (`GET /api/v1/inspectores`, «Nombre · Legajo N» con buscador) e **hitos por obra** (`GET /api/v1/hitos?ot=<id>`). Probado de punta a punta **solo desde la compu** (registro de prueba «PRUEBA - borrar (INS-2026-00001)», id 2). **Lo publicado sigue en modo simulado** y **nada de esto está desplegado** en Render hasta el OK de Jorge (ver «Pasar a producción»).
+
 ## Cómo probarla en la compu
 
 No hace falta instalar nada ni compilar. Desde la carpeta del repo:
@@ -73,7 +75,8 @@ El repo `jomag32/hys-carga` **queda público**. Por eso:
 | Interruptor | Valor | Qué hace |
 |---|---|---|
 | `MODO_ENVIO` | **`"simulado"`** (hoy) | No sale nada a la red. Se valida el payload igual que lo hará el backend, se guarda en la lista local «enviados» (`localStorage` `hys_enviados_simulados`) y se ve en el panel `?dev=1`. La pantalla dice «Enviado (modo prueba)». |
-| | `"backend"` | `POST {API_BASE}/api/v1/inspecciones` con cabecera `Idempotency-Key`. El backend (`hys-carga-api`; hoy responde 501, **no habilitado**) valida, aplica idempotencia y llama a Odoo con MIA: `/json/2/x_hys_inspeccion/create` con `vals_list = [cuerpo.odoo.vals]`. |
+| | `"backend"` | `POST {API_BASE}/api/v1/inspecciones` con cabecera `Idempotency-Key`. El backend `hys-carga-api` valida igual que el celular, descarta (y avisa en `descartados`) los campos que no existen en Odoo, busca por `x_idempotency_key` (si ya existe devuelve 200 con el mismo registro) y si no crea con MIA `x_hys_inspeccion` + `x_linea_ids` `[0, 0, {...}]` (201 `{id, name}`). La pantalla dice «Enviado a Odoo» y el número. |
+| Prueba local | `api/config.local.js` | Solo en `localhost` (archivo en `.gitignore`; modelo en `api/config.local.example.js`): pone `MODO_ENVIO: "backend"`, `API_BASE: "http://localhost:8793"` y `OBRAS_FUENTE: "backend"` para probar contra un backend local **sin tocar la configuración publicada**. |
 | `API_BASE` | `"https://hys-carga-api.onrender.com"` | Backend `hys-carga-api` (Render). Rutas bajo `/api/v1`. |
 | `OBRAS_FUENTE` | `"backend"` en producción | `"ejemplo"` con `?dev=1` o en `localhost`; se fuerza con `?obras=backend\|ejemplo`. |
 | `MOCK` | `true` | Catálogos de ejemplo (`api/datos-mock.js`: inspectores, plantilla de ítems, fichas, hitos) y guardado local de F01, F03–F08. |
@@ -109,7 +112,7 @@ Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UT
               "x_respuesta": "no", "x_criticidad": "critico", "x_foto": "<base64 JPEG>", "x_comentario": "Disyuntor puenteado"}]
     ] } },
   "contexto": { "obra": "OT 9101 - …", "modalidad": "presencial", "clase_al_inspeccionar": "A", "clase_motivo": "…",
-                "cant_no": 1, "desvios_a_generar": 1, "campos_pendientes_en_odoo": ["x_cargado_por"], "app": "hys-carga web" }
+                "cant_no": 1, "desvios_a_generar": 1, "campos_pendientes_en_odoo": [], "app": "hys-carga web" }
 }
 ```
 
@@ -170,13 +173,15 @@ hys-carga/
 
 ## Pendiente
 
-- **Backend:** ya está `GET /api/v1/obras` (solo lectura). Falta `POST /api/v1/inspecciones` (escritura en Odoo, hoy 501), lista de usuarios real e idempotencia en Postgres (§5.2). No se despliega nada sin el OK de Jorge.
+- **Pasar a producción el envío real de F02** (con el OK de Jorge): (1) desplegar `hys-carga-api` (último commit de `main`) y probar `GET /api/v1/inspectores`; (2) cambiar en `api/config.js` `MODO_ENVIO: "simulado"` → `"backend"`, commit y desplegar el sitio `hys-carga`. Si se despliega el sitio antes que el backend, F02 no abre (le faltan los inspectores). Borrar en Odoo el registro de prueba «PRUEBA - borrar (INS-2026-00001)» cuando Jorge diga.
+- **Legajos de inspectores:** en Odoo `hr.employee` no hay legajo cargado (`registration_number` vacío; `barcode` es la credencial de asistencia, no un legajo). Hasta que se cargue, la lista sale sin legajo; se puede cargar una lista privada `legajo,nombre` en el backend (ver `backend/README.md`). Falta definir quiénes son inspectores (hoy: todos los empleados activos menos el departamento CESANTES).
+- **Backend:** falta lista de usuarios real, idempotencia en Postgres (§5.2; hoy se busca por `x_idempotency_key` en Odoo) y el resto de los formularios. No se despliega nada sin el OK de Jorge.
 - **Permisos de MIA:** grupo «HyS Servicio API» con leer / crear / escribir (sin borrar) en `x_hys_inspeccion` y `x_hys_inspeccion_linea` (verificado 18/10/2026). Falta para los demás modelos `x_hys_*`.
 - **Usuarios de ejemplo vs. obras reales:** `datos/usuarios.json` referencia obras de ejemplo (101–106); con las obras reales del backend solo aparece el usuario de ejemplo habilitado en todas («*»). Se resuelve con la lista real de usuarios (privada, servida por el backend).
-- **Crear `x_cargado_por` (char) en `x_hys_inspeccion`** cuando Jorge lo indique. Hasta entonces el payload lo trae y el backend lo tiene que quitar (o crearlo antes), porque Odoo rechaza campos inexistentes. Confirmar también que `x_estado` esté creado.
 - **Método de acceso** de los usuarios (PIN, enlace, etc., §7.4 #4) y **dónde vive la lista real** (privada, servida por el backend).
 - **Modelo de plantilla de ítems** (`x_hys_item_plantilla`) en Odoo: hoy los ítems salen del Anexo A (en `datos-mock.js`) y viajan por **código** (`x_item_codigo`), no como many2one.
-- Ids de ejemplo: `x_ot_id`, `x_inspector_id` y `x_hito_id` de los ejemplos no son ids reales de Odoo; los da el backend con los catálogos.
+- Ids de ejemplo (solo `?dev=1`/localhost): `x_ot_id`, `x_inspector_id` y `x_hito_id` de los ejemplos no son ids reales de Odoo; con el backend son reales (obras, inspectores e hitos vienen de Odoo).
+- **Desvíos de F02:** el backend todavía no crea `x_hys_desvio` por cada «No» (queda `x_cant_no`).
 - **Desvíos:** cada «No» debería generar un `x_hys_desvio`; no va en este payload (el modelo no está confirmado). Lo resuelve el backend o una automatización de Odoo.
 - Fotos y firma viajan en base64 dentro del JSON; el diseño (§5.3) prefiere `multipart` con Blob. Sin *service worker* todavía (la app necesita señal para abrir la primera vez).
 - F02 se crea con el tipo elegido; enlazarla con una inspección **programada** existente (`write` en vez de `create`) lo resuelve el backend (§5.5).

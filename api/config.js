@@ -6,8 +6,8 @@
 // ║   "simulado" → NO sale nada a la red. El celular valida el payload, lo guarda en la    ║
 // ║                lista local «enviados» (localStorage "hys_enviados_simulados") y lo      ║
 // ║                muestra en el panel de desarrollo (?dev=1, pantalla Envíos).             ║
-// ║   "backend"  → POST a API_BASE + "/api/v1/inspecciones" (hys-carga-api en Render; hoy   ║
-// ║                responde 501, NO habilitado). Ese backend es el único que habla con Odoo, ║
+// ║   "backend"  → POST a API_BASE + "/api/v1/inspecciones" (hys-carga-api): crea de verdad ║
+// ║                la inspección en Odoo. Ese backend es el único que habla con Odoo, con la ║
 // ║                cuenta de servicio MIA, cuya credencial vive solo en el servidor.        ║
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 //
@@ -29,7 +29,7 @@ const PARAMS = new URLSearchParams(location.search);
 const EN_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 
 export const CONFIG = {
-  MODO_ENVIO: "simulado",            // "simulado" | "backend"
+  MODO_ENVIO: "simulado",            // "simulado" | "backend" (publicado: simulado hasta el OK de Jorge)
   API_BASE: "https://hys-carga-api.onrender.com", // backend hys-carga-api: /api/v1/obras (hoy) y /api/v1/inspecciones (futuro, §5.5)
   MOCK: true,                       // catálogos de ejemplo (sin red)
   USUARIOS_URL: "datos/usuarios.json", // lista fija de usuarios de carga (D-04 revisada, §2.15)
@@ -49,6 +49,12 @@ export const CONFIG = {
   FOTO_LADO_MAX: 1600,              // px; el diseño pide ≤ 1600 px y < 500 KB (§5.3)
   FOTO_CALIDAD: 0.7
 };
+
+// Configuración LOCAL de prueba (solo en localhost; archivo en .gitignore, ver config.local.example.js).
+// Sirve para probar MODO_ENVIO "backend" contra un backend local SIN tocar la configuración publicada.
+if (EN_LOCAL) {
+  try { Object.assign(CONFIG, (await import("./config.local.js")).default || {}); } catch (e) { /* no hay config local */ }
+}
 
 // Rutas del backend (versión 1 de la API).
 CONFIG.API_V1 = CONFIG.API_BASE + "/api/v1";

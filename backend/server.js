@@ -5,25 +5,33 @@
 // de Render (ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD). Nunca va al código ni a los logs.
 //
 // Endpoints:
-//   GET  /healthz               → {ok:true} (no toca Odoo)
-//   GET  /api/v1/obras          → [{id, name, ot, partner, director}] obras en curso (caché 5 min)
-//   POST /api/v1/inspecciones   → 501 (todavía NO se escribe en Odoo)
+//   GET  /healthz                 → {ok:true} (no toca Odoo)
+//   GET  /api/v1/obras            → [{id, name, ot, partner, director}] obras en curso (caché 5 min)
+//   GET  /api/v1/inspectores      → [{id, nombre, legajo}] (hr.employee o lista privada CSV; caché 5 min)
+//   GET  /api/v1/hitos?ot=<id>    → [{id, name, fecha_limite, alcanzado}] project.milestone de la OT
+//   POST /api/v1/inspecciones     → create de x_hys_inspeccion + líneas (idempotente; 201 nuevo, 200 repetido)
 
 import http from "node:http";
 import { crearCliente, ErrorOdoo } from "./odoo.js";
 import { armarObras } from "./obras.js";
+import { crearCatalogos } from "./catalogos.js";
+import { crearInspecciones, ErrorEntrada } from "./inspecciones.js";
 
 const PORT = Number(process.env.PORT) || 10000;
 const ETAPAS = (process.env.OBRAS_ETAPAS || "EN PROGRESO,PAUSADO").split(",").map((s) => s.trim()).filter(Boolean);
 const CACHE_MS = 5 * 60 * 1000;
 const ORIGENES = (process.env.ALLOWED_ORIGINS || "https://hys-carga.onrender.com").split(",").map((s) => s.trim()).filter(Boolean);
 const LOCALHOST = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/; // desarrollo
+const MAX_CUERPO = Number(process.env.MAX_BODY_MB || 15) * 1024 * 1024;
 const LIMITE = { ventanaMs: 60000, maximo: Number(process.env.RATE_LIMIT_PER_MIN) || 60 };
 
 let odoo = null;
 const cliente = () => (odoo ??= crearCliente({
   url: process.env.ODOO_URL, db: process.env.ODOO_DB, usuario: process.env.ODOO_USER, clave: process.env.ODOO_PASSWORD
 }));
+
+const catalogos = crearCatalogos(cliente);
+const inspecciones = crearInspecciones(cliente);
 
 // ---------------------------------------------------------------- obras (caché en memoria)
 let cache = { obras: null, hasta: 0, fecha: null };
@@ -50,7 +58,7 @@ function cors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", o);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key, Authorization");
     res.setHeader("Access-Control-Max-Age", "600");
   }
 }
@@ -73,6 +81,40 @@ setInterval(() => { const t = Date.now(); for (const [k, g] of golpes) if (t - g
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+/** Lee el cuerpo JSON con tope de tamaño (413 si se pasa). */
+function leerCuerpo(req) {
+  return new Promise((ok, mal) => {
+    const largo = Number(req.headers["content-length"] || 0);
+    if (largo > MAX_CUERPO) return mal(new ErrorEntrada(413, demasiado()));
+    const partes = []; let total = 0; let cortado = false;
+    req.on("data", (c) => {
+      if (cortado) return;
+      total += c.length;
+      if (total > MAX_CUERPO) { cortado = true; partes.length = 0; mal(new ErrorEntrada(413, demasiado())); return; }
+      partes.push(c);
+    });
+    req.on("end", () => {
+      if (cortado) return;
+      try { ok(JSON.parse(Buffer.concat(partes).toString("utf8"))); }
+      catch (e) { mal(new ErrorEntrada(400, "El cuerpo no es JSON válido")); }
+    });
+    req.on("error", () => mal(new ErrorEntrada(400, "Error leyendo el envío")));
+  });
+}
+const demasiado = () => `El envío pesa más de ${Math.round(MAX_CUERPO / 1048576)} MB (fotos muy grandes). Sacá menos fotos o de menor tamaño.`;
+
+/** Error de Odoo/entrada → respuesta JSON sin credenciales ni traceback. */
+function responderError(res, e, que) {
+  if (e instanceof ErrorEntrada) return json(res, e.estado, { error: e.message, ...e.extra }, e.estado === 413 ? { Connection: "close" } : {});
+  if (e instanceof ErrorOdoo) {
+    log(`${que}: error de Odoo`, e.tipo || "", (e.detalle || e.message).slice(0, 300));
+    if (e.deDatos) return json(res, 422, { error: `Odoo rechazó el registro: ${(e.detalle || "datos inválidos").split("\n")[0].slice(0, 200)}` });
+    return json(res, 502, { error: "No se pudo hablar con Odoo. Probá de nuevo en un rato." });
+  }
+  log(`${que}: error`, e?.name || "error", String(e?.message || "").slice(0, 200));
+  return json(res, 500, { error: "Error interno" });
+}
+
 // ---------------------------------------------------------------- rutas
 const servidor = http.createServer(async (req, res) => {
   cors(req, res);
@@ -92,11 +134,31 @@ const servidor = http.createServer(async (req, res) => {
         return json(res, 502, { error: "No se pudo leer la lista de obras desde Odoo. Probá de nuevo en un rato." });
       }
     }
-    if (ruta === "/api/v1/inspecciones" && req.method === "POST") {
-      req.resume();
-      return json(res, 501, { error: "Envío de inspecciones a Odoo todavía no habilitado (modo simulado)." });
+    if (ruta === "/api/v1/inspectores" && req.method === "GET") {
+      try {
+        const r = await catalogos.leerInspectores();
+        return json(res, 200, r.lista, { "X-Fuente": r.fuente, "X-Sin-Vincular": String(r.sinVincular) });
+      } catch (e) { return responderError(res, e, "inspectores"); }
     }
-    if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api", endpoints: ["GET /healthz", "GET /api/v1/obras"] });
+    if (ruta === "/api/v1/hitos" && req.method === "GET") {
+      const ot = Number(new URL(req.url, "http://x").searchParams.get("ot"));
+      if (!Number.isInteger(ot) || ot <= 0) return json(res, 400, { error: "Falta ?ot=<id de la obra>" });
+      try { return json(res, 200, await catalogos.leerHitos(ot)); }
+      catch (e) { return responderError(res, e, "hitos"); }
+    }
+    if (ruta === "/api/v1/inspecciones" && req.method === "POST") {
+      try {
+        const cuerpo = await leerCuerpo(req);
+        const r = await inspecciones.recibir(cuerpo, { claveCabecera: req.headers["idempotency-key"] || null });
+        log(`inspecciones: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id}${r.cuerpo.descartados?.length ? ` · descartados ${r.cuerpo.descartados.join(", ")}` : ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) {
+        if (e instanceof ErrorEntrada && e.estado === 413) req.resume();
+        return responderError(res, e, "inspecciones");
+      }
+    }
+    if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/hitos?ot=<id>", "POST /api/v1/inspecciones"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

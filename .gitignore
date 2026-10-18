@@ -1,2 +1,4 @@
 # Datos reales: NO se suben (repo público, decisión D-05). Solo para pruebas locales.
 datos/*.local.json
+# Configuración local de prueba (backend local, modo de envío real). No se sube.
+api/config.local.js

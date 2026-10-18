@@ -4,8 +4,7 @@
 //   · CONFIG.MODO_ENVIO ("simulado" | "backend") → cómo se manda la Inspección de obra (F02):
 //       - "simulado": sin red; se valida el payload, se guarda en la lista local «enviados»
 //         (localStorage "hys_enviados_simulados") y se ve en el panel ?dev=1.
-//       - "backend": POST CONFIG.API_V1 + "/inspecciones" al backend hys-carga-api en Render
-//         (hoy responde 501: todavía NO habilitado), que valida, aplica la idempotencia y llama a Odoo con la cuenta de servicio MIA
+//       - "backend": POST CONFIG.API_V1 + "/inspecciones" al backend hys-carga-api, que valida, aplica la idempotencia y llama a Odoo con la cuenta de servicio MIA
 //         (JSON-2: /json/2/x_hys_inspeccion/create con vals_list = [payload.odoo.vals]).
 //   · CONFIG.MOCK → catálogos de ejemplo (datos-mock.js) y guardado local de F01, F03–F08.
 //
@@ -82,16 +81,58 @@ let obrasEnCurso = null;
 /** De dónde salió la última lista: {origen: "backend"|"ejemplo"|"copia", fecha}. */
 export const estadoObras = { origen: null, fecha: null };
 
-async function obrasDelBackend() {
+/** GET de un catálogo del backend (con espera larga: el plan free de Render tarda en despertar). */
+async function leerDelBackend(ruta) {
   let r;
   try {
-    r = await fetch(`${CONFIG.API_V1}/obras`, { cache: "no-store", signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
+    r = await fetch(`${CONFIG.API_V1}${ruta}`, { cache: "no-store", signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
   } catch (e) {
     throw new ErrorApi(e?.name === "TimeoutError" ? "El servidor tardó demasiado en responder" : "Sin conexión con el servidor", 0);
   }
   const datos = await r.json().catch(() => null);
   if (!r.ok) throw new ErrorApi(datos?.error || `El servidor respondió con error ${r.status}`, r.status);
   return datos;
+}
+const obrasDelBackend = () => leerDelBackend("/obras");
+
+/** Lee un catálogo y guarda copia; sin señal usa la última copia REAL (nunca ejemplos en producción). */
+async function conCopia(clave, leer) {
+  const k = `hys_cat_${CONFIG.OBRAS_FUENTE}_${clave}`;
+  try {
+    const v = await leer();
+    try { localStorage.setItem(k, JSON.stringify({ fecha: new Date().toISOString(), v })); } catch (e) { /* lleno */ }
+    return v;
+  } catch (e) {
+    const c = JSON.parse(localStorage.getItem(k) || "null");
+    if (c) return c.v;
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------- Inspectores y hitos (F02)
+// Fuente = CONFIG.OBRAS_FUENTE (igual que las obras): "backend" → GET /api/v1/inspectores y
+// GET /api/v1/hitos?ot=<id> (Odoo vía MIA, solo lectura); "ejemplo" → datos-mock.js.
+let inspectoresCache = null;
+/** [{id, nombre, legajo}] (id = hr.employee). */
+export async function leerInspectores() {
+  if (inspectoresCache) return inspectoresCache;
+  const lista = await conCopia("inspectores", async () => CONFIG.OBRAS_FUENTE === "backend"
+    ? leerDelBackend("/inspectores")
+    : M.EMPLEADOS.filter((e) => (e.x_mock_roles || []).includes("inspector")).map((e) => ({ id: e.id, nombre: e.name, legajo: e.x_legajo ?? null })));
+  if (!Array.isArray(lista)) throw new Error("La lista de inspectores llegó con otro formato");
+  inspectoresCache = lista;
+  return lista;
+}
+
+const hitosCache = new Map();
+/** Hitos (project.milestone) de una obra: [{id, name}]. En ejemplos, solo los de riesgo crítico. */
+export async function leerHitosObra(otId) {
+  if (hitosCache.has(otId)) return hitosCache.get(otId);
+  const lista = await conCopia(`hitos_${otId}`, async () => CONFIG.OBRAS_FUENTE === "backend"
+    ? leerDelBackend(`/hitos?ot=${encodeURIComponent(otId)}`)
+    : M.HITOS.filter((x) => x.project_id[0] === otId && x.x_riesgo_hys === "critico").map(({ id, name }) => ({ id, name })));
+  hitosCache.set(otId, lista);
+  return lista;
 }
 
 async function obrasDeEjemplo() {
@@ -162,16 +203,16 @@ export const SELECCION = {
 };
 
 // Campos que el payload manda a Odoo. Cualquier otro campo se rechaza antes de salir, para no
-// romper el create con un campo que no existe. x_cargado_por es char y TODAVÍA NO EXISTE en Odoo
-// (se crea cuando Jorge lo indique): hasta entonces el backend tiene que quitarlo o crearlo antes.
-// x_estado está en el diseño §2.8 (requerido, por defecto «programada»): a confirmar que esté creado.
+// romper el create con un campo que no existe. x_cargado_por (char) existe en Odoo desde el
+// 18/10/2026 (studio_customization.hys_field_inspeccion__x_cargado_por); x_estado también.
+// El backend vuelve a filtrar contra fields_get y avisa en «descartados» lo que no exista.
 export const CAMPOS_INSPECCION = [
   "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_hito_id", "x_inspector_id",
   "x_tc_nombre", "x_tc_firma", "x_tc_observaciones", "x_fecha_hora_control",
   "x_gps_lat", "x_gps_lon", "x_gps_precision_m", "x_gps_fecha", "x_gps_estado",
   "x_origen", "x_idempotency_key", "x_cargado_por", "x_linea_ids"
 ];
-export const CAMPOS_PENDIENTES_EN_ODOO = ["x_cargado_por"];
+export const CAMPOS_PENDIENTES_EN_ODOO = [];
 export const CAMPOS_LINEA = ["x_name", "x_bloque", "x_item_codigo", "x_secuencia", "x_respuesta", "x_criticidad", "x_foto", "x_comentario"];
 const CAMPOS_FECHA = ["x_fecha_hora_control", "x_gps_fecha"];
 
@@ -276,7 +317,7 @@ export function recortarBase64(o) {
   return o;
 }
 
-// ---------------------------------------------------------------- modo real (backend Render, futuro)
+// ---------------------------------------------------------------- modo real (backend hys-carga-api)
 // /inspecciones sigue el diseño §5.5. Los endpoints genéricos /registros/... de los otros
 // formularios son provisorios. Se ajustan al armar el backend.
 
@@ -296,7 +337,7 @@ async function llamar(ruta, cuerpo, idempotencyKey) {
     throw new ErrorApi("Sin conexión con el servidor", 0);
   }
   const datos = await r.json().catch(() => ({}));
-  if (!r.ok) throw new ErrorApi(datos.mensaje || `Error ${r.status}`, r.status, datos.errores);
+  if (!r.ok) throw new ErrorApi(datos.error || datos.mensaje || `Error ${r.status}`, r.status, datos.errores);
   return datos;
 }
 
