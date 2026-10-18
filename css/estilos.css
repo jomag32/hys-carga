@@ -167,3 +167,9 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 .lista-obras .btn-lista { text-align: left; }
 .num-proyecto { color: var(--gris); font-weight: 400; }
 .obra-elegida p { margin: .2rem 0 .5rem; color: var(--ok); }
+/* Carga de obras desde el backend (puede tardar si el servidor estaba dormido) */
+.cargando-obras .girando { display: inline-block; animation: girar 1.6s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cargando-obras .girando { animation: none; } }
+.error-obras p { margin: 0 0 .5rem; }
+.error-obras .btn { width: 100%; font-weight: 700; }

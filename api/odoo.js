@@ -4,8 +4,8 @@
 //   · CONFIG.MODO_ENVIO ("simulado" | "backend") → cómo se manda la Inspección de obra (F02):
 //       - "simulado": sin red; se valida el payload, se guarda en la lista local «enviados»
 //         (localStorage "hys_enviados_simulados") y se ve en el panel ?dev=1.
-//       - "backend": POST CONFIG.API_BASE + "/inspecciones" al backend FUTURO de hys-carga en
-//         Render, que valida, aplica la idempotencia y llama a Odoo con la cuenta de servicio MIA
+//       - "backend": POST CONFIG.API_V1 + "/inspecciones" al backend hys-carga-api en Render
+//         (hoy responde 501: todavía NO habilitado), que valida, aplica la idempotencia y llama a Odoo con la cuenta de servicio MIA
 //         (JSON-2: /json/2/x_hys_inspeccion/create con vals_list = [payload.odoo.vals]).
 //   · CONFIG.MOCK → catálogos de ejemplo (datos-mock.js) y guardado local de F01, F03–F08.
 //
@@ -69,34 +69,63 @@ export async function leerUsuariosLocales(obraId) {
 
 // ---------------------------------------------------------------- Obras «en obra» (selector de F02)
 // D-05 (17/10/2026 18:54): el repo es público → los nombres reales de proyectos y clientes NUNCA se
-// suben a GitHub. En producción los sirve el backend: GET /api/v1/obras, que consulta Odoo con la
-// cuenta de servicio MIA. Criterio propuesto (relevado en Odoo el 17/10/2026, solo lectura):
-//   project.project con stage_id.name = "EN PROGRESO", is_template = False (y active = True).
-// Respuesta esperada: [{id, name, ot, partner_id, user_id}] (ot = número de OT sacado del nombre).
-// En modo simulado se lee CONFIG.OBRAS_URLS (ejemplos; obras.local.json solo en la compu de prueba).
-const CLAVE_OBRAS = "hys_obras_cache";
+// suben a GitHub. En producción los sirve el backend hys-carga-api: GET {API_BASE}/api/v1/obras, que
+// consulta Odoo con la cuenta de servicio MIA (solo lectura): project.project activos, no plantilla,
+// en etapa EN PROGRESO o PAUSADO, sin los proyectos llamados «VARIOS». Respuesta:
+// [{id, name, ot, partner, director}] → acá se adapta a {id, name, ot, partner_id, user_id}.
+// CONFIG.OBRAS_FUENTE = "ejemplo" (solo ?dev=1 o localhost) lee CONFIG.OBRAS_URLS.
+// Si el backend no responde se usa la última lista REAL guardada en este celular (avisando la
+// fecha); si no hay ninguna, error → el selector muestra «Reintentar». Nunca ejemplos en producción.
+const CLAVE_OBRAS = `hys_obras_cache_${CONFIG.OBRAS_FUENTE}`;
 let obrasCache = null;
+let obrasEnCurso = null;
+/** De dónde salió la última lista: {origen: "backend"|"ejemplo"|"copia", fecha}. */
+export const estadoObras = { origen: null, fecha: null };
 
-export async function listarObrasActivas() {
-  if (obrasCache) return obrasCache;
-  let obras = null;
+async function obrasDelBackend() {
+  let r;
   try {
-    if (CONFIG.MODO_ENVIO === "backend") obras = await llamar("/obras");
-    else {
-      for (const url of CONFIG.OBRAS_URLS) {
-        const r = await fetch(url, { cache: "no-cache" }).catch(() => null);
-        if (r?.ok) { obras = await r.json(); break; }
-      }
-    }
-    if (!Array.isArray(obras)) throw new Error("sin lista de obras");
-    localStorage.setItem(CLAVE_OBRAS, JSON.stringify({ fecha: new Date().toISOString(), obras }));
+    r = await fetch(`${CONFIG.API_V1}/obras`, { cache: "no-store", signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
   } catch (e) {
-    obras = JSON.parse(localStorage.getItem(CLAVE_OBRAS) || "null")?.obras; // copia para usar sin señal
-    if (!obras) throw new Error("No se pudo leer la lista de obras (¿sin señal la primera vez?)");
+    throw new ErrorApi(e?.name === "TimeoutError" ? "El servidor tardó demasiado en responder" : "Sin conexión con el servidor", 0);
   }
-  obrasCache = obras.map((o) => ({ ...o, ot: o.ot ?? numeroOt(o.name) }))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
-  return obrasCache;
+  const datos = await r.json().catch(() => null);
+  if (!r.ok) throw new ErrorApi(datos?.error || `El servidor respondió con error ${r.status}`, r.status);
+  return datos;
+}
+
+async function obrasDeEjemplo() {
+  for (const url of CONFIG.OBRAS_URLS) {
+    const r = await fetch(url, { cache: "no-cache" }).catch(() => null);
+    if (r?.ok) return r.json();
+  }
+  return null;
+}
+
+const aM2o = (v) => (Array.isArray(v) ? v : v ? [null, v] : false);
+
+export function listarObrasActivas() {
+  if (obrasCache) return Promise.resolve(obrasCache);
+  obrasEnCurso ??= (async () => {
+    let obras = null;
+    try {
+      obras = CONFIG.OBRAS_FUENTE === "backend" ? await obrasDelBackend() : await obrasDeEjemplo();
+      if (!Array.isArray(obras)) throw new Error("La lista de obras llegó vacía o con otro formato");
+      Object.assign(estadoObras, { origen: CONFIG.OBRAS_FUENTE, fecha: new Date().toISOString() });
+      try { localStorage.setItem(CLAVE_OBRAS, JSON.stringify({ fecha: estadoObras.fecha, obras })); } catch (e) { /* lleno */ }
+    } catch (e) {
+      const copia = JSON.parse(localStorage.getItem(CLAVE_OBRAS) || "null"); // última lista real, para usar sin señal
+      if (!copia?.obras?.length) throw e;
+      obras = copia.obras;
+      Object.assign(estadoObras, { origen: "copia", fecha: copia.fecha });
+    }
+    obrasCache = obras.map((o) => ({
+      ...o, ot: o.ot ?? numeroOt(o.name),
+      partner_id: o.partner_id ?? aM2o(o.partner), user_id: o.user_id ?? aM2o(o.director)
+    })).sort((a, b) => (a.ot == null) - (b.ot == null) || Number(a.ot) - Number(b.ot) || String(a.name).localeCompare(String(b.name), "es"));
+    return obrasCache;
+  })().finally(() => { obrasEnCurso = null; });
+  return obrasEnCurso;
 }
 
 /** "OT 9101 - X", "0T-9101-X", "OT.9101 X" → "9101". */
@@ -223,9 +252,9 @@ const simulado = {
     const lista = listarEnviadosSimulados();
     const ya = lista.find((x) => x.idempotency_key === clave);
     if (ya) return { ...ya.respuesta, repetido: true }; // mismo envío: misma respuesta (200), sin duplicar
-    const n = lista.filter((x) => x.endpoint === `POST ${CONFIG.API_BASE}${endpoint}`).length + 1;
+    const n = lista.filter((x) => x.endpoint === `POST /api/v1${endpoint}`).length + 1;
     const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
-    lista.unshift({ idempotency_key: clave, endpoint: `POST ${CONFIG.API_BASE}${endpoint}`, recibido: new Date().toISOString(),
+    lista.unshift({ idempotency_key: clave, endpoint: `POST /api/v1${endpoint}`, recibido: new Date().toISOString(),
       respuesta, cuerpo: recortarBase64(cuerpo) });
     try { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 30))); }
     catch (e) { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 5))); }
@@ -258,7 +287,7 @@ async function llamar(ruta, cuerpo, idempotencyKey) {
   if (token) cabeceras.Authorization = `Bearer ${token}`; // token de la persona; NUNCA credenciales de Odoo/MIA
   let r;
   try {
-    r = await fetch(CONFIG.API_BASE + ruta, {
+    r = await fetch(CONFIG.API_V1 + ruta, {
       method: cuerpo === undefined ? "GET" : "POST",
       headers: cabeceras,
       body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo)

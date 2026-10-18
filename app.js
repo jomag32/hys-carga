@@ -123,7 +123,7 @@ function vistaEnvios() {
 function panelDev(repintar) {
   const enviados = listarEnviadosSimulados();
   return h("details", { class: "panel-dev", open: true, id: "panel-dev" }, h("summary", {}, "Herramientas de desarrollo"),
-    h("p", { class: "modo" }, "Envío: ", h("span", { class: "etiqueta-modo" }, CONFIG.MODO_ENVIO), ` · API_BASE ${CONFIG.API_BASE} · catálogos ${CONFIG.MOCK ? "de ejemplo" : "del backend"}`),
+    h("p", { class: "modo" }, "Envío: ", h("span", { class: "etiqueta-modo" }, CONFIG.MODO_ENVIO), ` · API_BASE ${CONFIG.API_BASE} · obras: ${CONFIG.OBRAS_FUENTE} · catálogos ${CONFIG.MOCK ? "de ejemplo" : "del backend"}`),
     h("label", { class: "casilla" }, h("input", { type: "checkbox", id: "sim-sin-senal", checked: localStorage.getItem("hys_simular_sin_senal") === "1",
       onchange: (ev) => { localStorage.setItem("hys_simular_sin_senal", ev.target.checked ? "1" : "0"); } }), h("span", {}, "Simular sin señal")),
     h("div", { class: "acciones" },

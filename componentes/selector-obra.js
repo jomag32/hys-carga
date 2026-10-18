@@ -5,7 +5,8 @@
 // nombre del proyecto, número de OT o número de proyecto (id de project.project).
 
 import { h, nombreM2o } from "./util.js";
-import { listarObrasActivas } from "../api/odoo.js";
+import { listarObrasActivas, estadoObras } from "../api/odoo.js";
+import { mostrarFechaHora } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { LUGAR_PLANTA } from "../api/datos-mock.js";
 
@@ -31,7 +32,8 @@ export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", inclui
   if (d[clave] === undefined && sesion.obra && (incluirPlanta || sesion.obra.id !== "planta")) d[clave] = sesion.obra;
   let opciones = [];
   let texto = "";
-  const lista = h("div", { class: "lista-botones lista-obras", role: "listbox", id: `lista-${clave}` }, h("p", { class: "ayuda" }, "Cargando obras…"));
+  const lista = h("div", { class: "lista-botones lista-obras", role: "listbox", id: `lista-${clave}` });
+  const estado = h("div", { class: "estado-obras", "aria-live": "polite" });
   const contador = h("p", { class: "ayuda contador-obras", "aria-live": "polite" });
   const elegida = h("div", { class: "obra-elegida" });
   const info = h("div", { class: "info-obra" });
@@ -60,12 +62,32 @@ export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", inclui
       }, h("span", {}, o.name), o.id !== "planta" ? h("small", { class: "num-proyecto" }, ` · Proyecto ${o.id}`) : ""))
       : [h("p", { class: "ayuda" }, "Ninguna obra coincide con la búsqueda.")]));
   };
-  leerObras().then((obras) => {
-    opciones = incluirPlanta ? [...obras, LUGAR_PLANTA] : obras;
-    pintar(); pintarInfo();
-  }).catch((e) => lista.replaceChildren(h("p", { class: "aviso error" }, `No se pudieron leer las obras: ${e.message}`)));
+  // Carga: el backend (plan free de Render) puede tardar ~50 s en despertar → aviso amable.
+  const cargar = () => {
+    lista.replaceChildren();
+    estado.replaceChildren(h("p", { class: "ayuda cargando-obras" }, h("span", { class: "girando", "aria-hidden": "true" }, "⏳"), " Cargando obras…"));
+    const lento = setTimeout(() => estado.firstChild?.append(h("br"),
+      "El servidor se está despertando; puede tardar hasta un minuto. No cierres la app."), 4000);
+    leerObras().then((obras) => {
+      clearTimeout(lento);
+      estado.replaceChildren(estadoObras.origen === "copia"
+        ? h("p", { class: "aviso" }, `Sin conexión con el servidor: se muestra la lista guardada el ${mostrarFechaHora(estadoObras.fecha)}.`)
+        : "");
+      opciones = incluirPlanta ? [...obras, LUGAR_PLANTA] : obras;
+      pintar(); pintarInfo();
+    }).catch((e) => {
+      clearTimeout(lento);
+      contador.textContent = "";
+      estado.replaceChildren(h("div", { class: "aviso error error-obras", role: "alert" },
+        h("p", {}, h("b", {}, "No se pudo cargar la lista de obras. "), e.message ? `(${e.message})` : ""),
+        h("p", {}, "Revisá la señal y probá de nuevo."),
+        h("button", { type: "button", class: "btn primario", id: `reintentar-${clave}`, onclick: cargar }, "Reintentar")));
+      if (incluirPlanta) { opciones = [LUGAR_PLANTA]; pintar(); } // planta no depende del servidor
+    });
+  };
+  cargar();
   pintarInfo();
   return h("div", { class: "campo selector-obra" },
     h("label", { class: "etiqueta", for: `buscar-${clave}` }, etiqueta, requerido && h("span", { class: "req" }, " *")),
-    elegida, buscador, contador, lista, info);
+    elegida, buscador, estado, contador, lista, info);
 }

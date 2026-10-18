@@ -28,6 +28,8 @@ Solo README inicial. Todavía no hay código ni despliegue en Render.
 
 **Actualización 17/10/2026 (tarde):** F02 · Inspección de obra lista para probar desde el celular: **ingreso** con la lista fija de usuarios, **selector de obra con buscador**, formulario alineado con el modelo `x_hys_inspeccion` creado en Odoo, **cola sin señal en IndexedDB** y **capa de envío** que arma el payload exacto del `create` (hoy en **modo simulado**: no sale nada a la red). Sigue **sin backend y sin despliegue en Render** (cualquier deploy lo autoriza Jorge).
 
+**Actualización 18/10/2026:** hay **backend** (`backend/`, servicio **`hys-carga-api`** en Render, <https://hys-carga-api.onrender.com>). Por ahora solo **lee** de Odoo la lista de obras (`GET /api/v1/obras`, con la cuenta de servicio MIA). La app ya usa esa lista real en producción. El envío de inspecciones **sigue en modo simulado** (`POST /api/v1/inspecciones` responde 501).
+
 ## Cómo probarla en la compu
 
 No hace falta instalar nada ni compilar. Desde la carpeta del repo:
@@ -44,10 +46,10 @@ Flujo: **Ingresar** (1. obra u otro lugar → 2. quién sos) → inicio → F02 
 
 El repo `jomag32/hys-carga` **queda público**. Por eso:
 
-- **Proyectos y clientes reales:** los va a servir el **backend** desde Odoo (`GET /api/v1/obras`, con la cuenta de servicio MIA). **Nunca** se suben a GitHub. En el repo solo hay obras de **ejemplo** (`datos/obras.json`, «OT 9101 - Galpón Ejemplo Norte», …).
+- **Proyectos y clientes reales:** los sirve el **backend** `hys-carga-api` desde Odoo (`GET /api/v1/obras`, con la cuenta de servicio MIA). **Nunca** se suben a GitHub. En el repo solo hay obras de **ejemplo** (`datos/obras.json`, «OT 9101 - Galpón Ejemplo Norte», …).
 - **Usuarios de carga reales:** la lista real **no** se sube a este repo. `datos/usuarios.json` tiene solo ejemplos («Usuario Ejemplo 1», …). Más adelante la sirve el backend desde un lugar privado (Postgres de Render o archivo de configuración privado).
 - **Credenciales:** ninguna en el frontend ni en el repo (ni la de MIA, ni PINs, ni tokens). La credencial de MIA va solo como variable de entorno secreta del backend en Render.
-- Para probar en la compu con datos reales se puede generar `datos/obras.local.json` (misma forma que `obras.json`): está en `.gitignore` y la app lo usa primero si existe (solo modo simulado).
+- Para probar en la compu con datos reales se puede generar `datos/obras.local.json` (misma forma que `obras.json`): está en `.gitignore` y la app lo usa primero si existe (solo en `localhost` con la fuente «ejemplo»).
 
 ## Usuarios de carga (D-04 revisada)
 
@@ -58,9 +60,12 @@ El repo `jomag32/hys-carga` **queda público**. Por eso:
 
 ## Obras: selector de F02 (y del ingreso)
 
-- `api/odoo.js` → `listarObrasActivas()`. Modo `backend`: `GET /api/v1/obras` (el backend consulta Odoo con MIA). Modo `simulado`: lee `datos/obras.local.json` si existe y si no `datos/obras.json`. Guarda una copia para usar sin señal.
+- `api/odoo.js` → `listarObrasActivas()`, según `CONFIG.OBRAS_FUENTE`:
+  - **`backend`** (producción): `GET {API_BASE}/api/v1/obras` → `[{id, name, ot, partner, director}]` desde Odoo. Mientras carga muestra «Cargando obras…» y, si tarda (el plan free de Render puede tardar ~50 s en despertar), avisa que el servidor se está despertando. Si falla: mensaje claro con **Reintentar** (nunca obras de ejemplo en silencio). Si ya hubo una lista real en ese celular, la usa avisando la fecha.
+  - **`ejemplo`**: solo con `?dev=1` o en `localhost`. Lee `datos/obras.json` (y antes `datos/obras.local.json`, solo en `localhost`).
+  - Para forzar la fuente al probar: `?obras=backend` o `?obras=ejemplo`.
 - Muestra **todos** los proyectos «en obra» (no filtra por la obra del ingreso; esa solo viene marcada), con buscador mientras se escribe, **sin distinguir mayúsculas ni acentos**, por **nombre**, **número de OT** («9102», «OT 9102») o **número de proyecto** (id de `project.project`, «proyecto 102»).
-- **Criterio «en obra» propuesto** (relevado en Odoo el 17/10/2026, solo lectura): `project.project` con etapa `stage_id` = «EN PROGRESO», `is_template` = Falso, `active` = Verdadero → 27 proyectos (25 con número de OT en el nombre; 2 se llaman «VARIOS»). Etapas existentes: NO INICIADAS, EN PROGRESO, FINALIZADO, Cancelled, PAUSADO. No hay campo `x_` ni etiqueta que marque «en obra»; las etiquetas existentes son de empresa o contratista, no de estado. *A confirmar por Jorge* (¿excluir «VARIOS»? ¿incluir PAUSADO?).
+- **Criterio «en obra»** (backend, 18/10/2026): `project.project` con etapa «EN PROGRESO» o «PAUSADO», `is_template` = Falso, `active` = Verdadero, **sin** los proyectos que se llaman solo «VARIOS». Al 18/10/2026: 25 obras (27 en EN PROGRESO menos 2 «VARIOS»; PAUSADO existe pero hoy no tiene proyectos). Orden por número de OT.
 - El número de OT se saca del nombre (`OT 9101 - …`, `0T-9101-…`, `OT.9101 …`); Odoo no tiene un campo de código de proyecto.
 
 ## Modos (api/config.js)
@@ -68,8 +73,9 @@ El repo `jomag32/hys-carga` **queda público**. Por eso:
 | Interruptor | Valor | Qué hace |
 |---|---|---|
 | `MODO_ENVIO` | **`"simulado"`** (hoy) | No sale nada a la red. Se valida el payload igual que lo hará el backend, se guarda en la lista local «enviados» (`localStorage` `hys_enviados_simulados`) y se ve en el panel `?dev=1`. La pantalla dice «Enviado (modo prueba)». |
-| | `"backend"` | `POST {API_BASE}/inspecciones` con cabecera `Idempotency-Key`. El backend (futuro, Render) valida, aplica idempotencia y llama a Odoo con MIA: `/json/2/x_hys_inspeccion/create` con `vals_list = [cuerpo.odoo.vals]`. |
-| `API_BASE` | `"/api/v1"` | Mismo origen cuando la app la sirva el backend de Render. |
+| | `"backend"` | `POST {API_BASE}/api/v1/inspecciones` con cabecera `Idempotency-Key`. El backend (`hys-carga-api`; hoy responde 501, **no habilitado**) valida, aplica idempotencia y llama a Odoo con MIA: `/json/2/x_hys_inspeccion/create` con `vals_list = [cuerpo.odoo.vals]`. |
+| `API_BASE` | `"https://hys-carga-api.onrender.com"` | Backend `hys-carga-api` (Render). Rutas bajo `/api/v1`. |
+| `OBRAS_FUENTE` | `"backend"` en producción | `"ejemplo"` con `?dev=1` o en `localhost`; se fuerza con `?obras=backend\|ejemplo`. |
 | `MOCK` | `true` | Catálogos de ejemplo (`api/datos-mock.js`: inspectores, plantilla de ítems, fichas, hitos) y guardado local de F01, F03–F08. |
 
 ## F02 · Inspección de obra → `x_hys_inspeccion`
@@ -127,6 +133,7 @@ Chrome sin ventana (Playwright) en tamaño celular (390×844): ingreso con búsq
 
 ```
 hys-carga/
+├── backend/                      # hys-carga-api (Node 20, sin dependencias): GET /healthz, GET /api/v1/obras (ver backend/README.md)
 ├── index.html                    # Pantalla única: encabezado (obra / quién carga / envíos / Salir) + contenido
 ├── app.js                        # Arranque, ruteo por hash, ingreso (obra → usuario), inicio, envíos, panel ?dev=1
 ├── datos/
@@ -163,11 +170,11 @@ hys-carga/
 
 ## Pendiente
 
-- **Backend real en Render** (no existe): `POST /api/v1/inspecciones`, `GET /api/v1/obras`, lista de usuarios, idempotencia en Postgres (§5.2), y llamada a Odoo con **MIA** del lado del servidor. No se despliega nada sin el OK de Jorge.
-- **Permiso de escritura de MIA** sobre los modelos `x_hys_*` (pendiente en Odoo).
+- **Backend:** ya está `GET /api/v1/obras` (solo lectura). Falta `POST /api/v1/inspecciones` (escritura en Odoo, hoy 501), lista de usuarios real e idempotencia en Postgres (§5.2). No se despliega nada sin el OK de Jorge.
+- **Permisos de MIA:** grupo «HyS Servicio API» con leer / crear / escribir (sin borrar) en `x_hys_inspeccion` y `x_hys_inspeccion_linea` (verificado 18/10/2026). Falta para los demás modelos `x_hys_*`.
+- **Usuarios de ejemplo vs. obras reales:** `datos/usuarios.json` referencia obras de ejemplo (101–106); con las obras reales del backend solo aparece el usuario de ejemplo habilitado en todas («*»). Se resuelve con la lista real de usuarios (privada, servida por el backend).
 - **Crear `x_cargado_por` (char) en `x_hys_inspeccion`** cuando Jorge lo indique. Hasta entonces el payload lo trae y el backend lo tiene que quitar (o crearlo antes), porque Odoo rechaza campos inexistentes. Confirmar también que `x_estado` esté creado.
 - **Método de acceso** de los usuarios (PIN, enlace, etc., §7.4 #4) y **dónde vive la lista real** (privada, servida por el backend).
-- **Criterio «en obra»** a confirmar (hoy: etapa EN PROGRESO, no plantilla).
 - **Modelo de plantilla de ítems** (`x_hys_item_plantilla`) en Odoo: hoy los ítems salen del Anexo A (en `datos-mock.js`) y viajan por **código** (`x_item_codigo`), no como many2one.
 - Ids de ejemplo: `x_ot_id`, `x_inspector_id` y `x_hito_id` de los ejemplos no son ids reales de Odoo; los da el backend con los catálogos.
 - **Desvíos:** cada «No» debería generar un `x_hys_desvio`; no va en este payload (el modelo no está confirmado). Lo resuelve el backend o una automatización de Odoo.
