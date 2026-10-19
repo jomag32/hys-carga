@@ -56,6 +56,9 @@ export default {
   },
   // Al retomar un borrador ya pasado el paso «Obra»: leer la Ficha antes de pintar (bloques de riesgo e hitos).
   async retomar(d, ctx) {
+    // Borradores viejos (antes del 18/10/2026 22:35) traían la obra del ingreso marcada sola: si la persona
+    // no la eligió en ese borrador (obra_elegida), se quita y hay que elegirla.
+    if (d.obra && !d.obra_elegida) { delete d.obra; d.respuestas = {}; d.ficha_hito_id = null; }
     const id = d.obra?.id;
     if (!esObra(d) || !id || id === "planta") return;
     try { ctx.fichas[id] = { estado: "ok", f: await leerFichaObra(id) }; }
@@ -116,8 +119,10 @@ export default {
             return campoSelect(d, "ficha_hito_id", "Hito crítico que arrancó", lista.map((x) => [x.id, texto(x)]),
               { requerido: true, ayuda: "Hitos críticos de la Ficha de Riesgos. Inspección presencial dentro de las 72 h del inicio real del hito." });
           };
-          // selectorObra primero: deja marcada la obra del ingreso (d.obra) antes de pintar hito e info.
-          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", alCambiar: () => { d.respuestas = {}; d.ficha_hito_id = null; pintar(); } });
+          // selectorObra primero (antes de pintar hito e info). Arranca VACÍO en todo F02 (prefill:false,
+          // pedido de Jorge 18/10/2026 22:35): ni la obra del ingreso ni la última elegida. Solo un borrador
+          // retomado conserva la obra que se eligió en ese borrador (se puede «Descartar»).
+          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", prefill: false, alCambiar: () => { d.obra_elegida = true; d.respuestas = {}; d.ficha_hito_id = null; pintar(); } });
           pintar();
           return [selector, info, hito];
         },

@@ -35,11 +35,13 @@ function filaObra(o) {
 
 /**
  * selectorObra(d, "obra", {incluirPlanta, alCambiar}) → elemento.
+ * prefill (por defecto true): marca de entrada la obra del ingreso; F02 lo usa en false (arranca vacío).
  * d[clave] queda como {id, name, ot, partner_id, user_id, x_mock_km} (o LUGAR_PLANTA).
  */
-export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", incluirPlanta = false, alCambiar, requerido = true, para = "" } = {}) {
+export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", incluirPlanta = false, alCambiar, requerido = true, para = "", prefill = true } = {}) {
   const sesion = leerSesion();
-  if (d[clave] === undefined && sesion.obra && (incluirPlanta || sesion.obra.id !== "planta")) d[clave] = sesion.obra;
+  // prefill=false (F02, pedido de Jorge 18/10/2026 22:35): el selector arranca vacío, sin la obra del ingreso.
+  if (prefill && d[clave] === undefined && sesion.obra && (incluirPlanta || sesion.obra.id !== "planta")) d[clave] = sesion.obra;
   let opciones = [];
   let texto = "";
   const lista = h("div", { class: "lista-botones lista-obras", role: "listbox", id: `lista-${clave}` });
