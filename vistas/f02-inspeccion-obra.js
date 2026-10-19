@@ -168,6 +168,15 @@ export default {
           campoArea(d, "tc_obs", "Observaciones (opcional)", { filas: 2 }),
           aviso("La firma no es veto: la inspección cuenta igual.", "info")],
         validar: (d) => (!d.tc_nombre?.trim() ? "Falta el nombre de quien toma conocimiento." : !d.tc_firma ? "Falta la firma." : null)
+      },
+      // Firma del inspector HyS que hizo la inspección → x_firma_inspector (opcional en Odoo; la app la pide
+      // para que cada inspección quede firmada por quien la hizo, igual que la del capataz).
+      {
+        titulo: "Firma del inspector",
+        dibujar: (d, ctx) => [
+          aviso(`Firma de ${textoInspector(ctx.inspectores.find((e) => e.id === d.inspector_id)) || "quien inspeccionó"}.`, "info"),
+          campoFirma(d, "firma_inspector", "Firma del inspector", { requerido: true })],
+        validar: (d) => (!d.firma_inspector ? "Falta la firma del inspector." : null)
       }
     ];
   },
@@ -182,7 +191,8 @@ export default {
       ["Modalidad", d.modalidad === "remota" ? "Remota" : "Presencial"],
       ["Inspector", textoInspector(ctx.inspectores.find((e) => e.id === d.inspector_id))],
       ["Ítems", resumenChecklist(itemsDeLaObra(d, ctx), d)],
-      ["Tomó conocimiento", d.tc_nombre]];
+      ["Tomó conocimiento", d.tc_nombre],
+      ["Firma del inspector", d.firma_inspector ? "Firmada" : "—"]];
   },
   armar: (d, auto, ctx) => {
     const f = ficha(d, ctx);
@@ -198,6 +208,7 @@ export default {
       x_inspector_hys_id: d.inspector_id, // x_hys_inspector (el backend agrega x_inspector_texto)
       x_tc_nombre: d.tc_nombre.trim(),
       x_tc_firma: d.tc_firma,
+      x_firma_inspector: d.firma_inspector || false,
       x_tc_observaciones: d.tc_obs?.trim() || false,
       x_origen: "formulario",
       ...camposControl(auto), // x_idempotency_key, x_fecha_hora_control, x_gps_*, x_cargado_por

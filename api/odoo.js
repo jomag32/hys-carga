@@ -312,7 +312,7 @@ export const SELECCION = {
 export const CAMPOS_INSPECCION = [
   "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_ficha_hito_id", "x_inspector_hys_id",
   "x_hito_id", // project.milestone: solo envíos viejos que siguen en la cola (desde 18/10/2026 se usa x_ficha_hito_id)
-  "x_tc_nombre", "x_tc_firma", "x_tc_observaciones", "x_fecha_hora_control",
+  "x_tc_nombre", "x_tc_firma", "x_firma_inspector", "x_tc_observaciones", "x_fecha_hora_control",
   "x_gps_lat", "x_gps_lon", "x_gps_precision_m", "x_gps_fecha", "x_gps_estado",
   "x_origen", "x_idempotency_key", "x_cargado_por", "x_linea_ids"
 ];

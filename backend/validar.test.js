@@ -46,3 +46,14 @@ test("payload viejo con x_inspector_id (empleado) → pide recargar", () => {
   const b = base(); b.odoo.vals.x_inspector_id = 9; delete b.odoo.vals.x_inspector_hys_id;
   assert.ok(validarYFiltrar(b, C).errores.some((e) => /desactualizada/.test(e.mensaje)));
 });
+
+test("firma del inspector: llega a x_firma_inspector sin el prefijo data: y es opcional", () => {
+  const C2 = { ...C, inspeccion: { ...C.inspeccion, x_firma_inspector: { type: "binary" } } };
+  const b = base(); b.odoo.vals.x_firma_inspector = "data:image/png;base64,CCCC";
+  const r = validarYFiltrar(b, C2);
+  assert.deepEqual(r.errores, []);
+  assert.equal(r.vals.x_firma_inspector, "CCCC");
+  const sin = validarYFiltrar(base(), C2);
+  assert.deepEqual(sin.errores, []);
+  assert.equal(sin.vals.x_firma_inspector, undefined);
+});
