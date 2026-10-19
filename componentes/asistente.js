@@ -11,6 +11,8 @@
 //   preparar?: async (ctx) => {...}     // lee catálogos y los deja en ctx
 //   inicial?: (ctx) => ({...})          // datos iniciales del formulario
 //   pasos: [...] o (ctx) => [...], cada uno { titulo, visible?(d, ctx), dibujar(d, ctx) → Node|Node[], validar?(d, ctx) → "error"|null }],
+//   cabecera?: (d, ctx) => Node|null    // franja arriba de cada paso (no en Revisión), p. ej. «Obra: X · Cambiar»
+//   retomar?: async (d, ctx) => {...}  // ajusta datos al abrir (también al retomar un borrador)
 //   resumen: (d, ctx) => [[etiqueta, valor], ...],
 //   armar: (d, auto, ctx) => ({ operacion: "crear"|"escribir", modelo, valores, ids? })
 // }
@@ -61,6 +63,7 @@ export async function montarAsistente(cont, def) {
     localStorage.removeItem(claveBorrador); location.hash = "#/";
   };
   ctx.refrescar = () => pintar();
+  ctx.irA = (n) => { error = null; i = n; guardarBorrador(); pintar(); };
   // El aviso de error se va apenas se corrige lo que faltaba (elegir una opción, escribir, firmar),
   // sin esperar a «Siguiente». Si sigue faltando otra cosa, se actualiza el texto.
   const revalidar = () => queueMicrotask(() => {
@@ -92,7 +95,7 @@ export async function montarAsistente(cont, def) {
     progreso.replaceChildren(
       h("div", { class: "barra" }, h("div", { class: "relleno", style: `width:${Math.round((i / ps.length) * 100)}%` })),
       h("p", {}, enRevision ? "Revisión final" : `Paso ${i + 1} de ${ps.length} · ${ps[i].titulo}`));
-    const contenido = enRevision ? revision(ps) : [h("h2", {}, ps[i].titulo), ps[i].dibujar(d, ctx)];
+    const contenido = enRevision ? revision(ps) : [def.cabecera?.(d, ctx), h("h2", {}, ps[i].titulo), ps[i].dibujar(d, ctx)];
     const cajaError = error ? aviso(error, "error") : null;
     cuerpo.replaceChildren(...[contenido].flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false && x !== ""), cajaError || "");
     nav.replaceChildren(

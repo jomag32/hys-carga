@@ -9,6 +9,11 @@ import { camposControl } from "../componentes/campos-auto.js";
 import { leerRegistros } from "../api/odoo.js";
 
 const fichaDe = (d, ctx) => ctx.fichas.find((f) => f.x_ot_id?.[0] === d.obra?.id);
+// Obra de la sesión (la elegida al ingresar). «Planta» no es una OT: ahí se sigue pidiendo la obra.
+const obraSesion = (ctx) => (ctx.sesion?.obra && ctx.sesion.obra.id !== "planta" ? ctx.sesion.obra : null);
+// El paso «Obra» se saltea si la obra ya viene de la sesión, salvo que se toque «Cambiar» o que esa OT
+// ya tenga Ficha (ahí se muestra el selector con el aviso y no deja seguir).
+const pasoObraVisible = (d, ctx) => !d.obra || !!d.cambiar_obra || !!fichaDe(d, ctx);
 const PREDIOS = [["terreno_cliente", "Terreno del cliente"], ["planta_terceros", "Planta de terceros"], ["via_publica", "Vía pública"]];
 
 export default {
@@ -19,11 +24,18 @@ export default {
       leerRegistros("x_hys_riesgo", [["x_active", "=", true]], ["x_codigo", "x_name", "x_gravedad"]),
       leerRegistros("x_hys_ficha", [], ["x_name", "x_ot_id", "x_estado"])]);
   },
-  inicial: () => ({ riesgo_ids: [], aprobar: "borrador" }),
+  inicial: (ctx) => ({ riesgo_ids: [], aprobar: "borrador", ...(obraSesion(ctx) ? { obra: obraSesion(ctx) } : {}) }),
+  // Borrador viejo sin obra: se completa con la de la sesión.
+  retomar: (d, ctx) => { if (!d.obra && obraSesion(ctx)) d.obra = obraSesion(ctx); },
+  // Encabezado compacto «Obra: X · Cambiar» cuando el paso «Obra» está salteado.
+  cabecera: (d, ctx) => (pasoObraVisible(d, ctx) ? null : h("div", { class: "aviso info cabecera-obra", id: "cabecera-obra" },
+    h("span", {}, "Obra: ", h("b", {}, d.obra.name)), " · ",
+    h("button", { type: "button", class: "btn chico", id: "btn-cambiar-obra", onclick: () => { d.cambiar_obra = true; ctx.irA(0); } }, "Cambiar"))),
   pasos: [
     {
       titulo: "Obra",
-      dibujar: (d, ctx) => [selectorObra(d, "obra", { alCambiar: () => ctx.refrescar() }),
+      visible: pasoObraVisible,
+      dibujar: (d, ctx) => [selectorObra(d, "obra", { alCambiar: () => { d.cambiar_obra = true; ctx.refrescar(); } }),
         fichaDe(d, ctx) ? aviso(`Esta OT ya tiene Ficha (${fichaDe(d, ctx).x_name}). Una sola Ficha por OT: los cambios se hacen en Odoo.`, "alerta")
           : aviso("Cliente y Director de Obra vienen solos desde la OT.", "info")],
       validar: (d, ctx) => (!d.obra ? "Elegí la obra." : fichaDe(d, ctx) ? "Esta OT ya tiene Ficha de Riesgos." : null)
