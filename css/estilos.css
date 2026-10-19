@@ -64,6 +64,10 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px soli
 .btn-formulario .icono { font-size: 2rem; }
 .btn-formulario .texto { display: flex; flex-direction: column; }
 .btn-formulario small { color: var(--gris); }
+.badge-prueba { display: inline-block; align-self: flex-start; margin-top: .25rem; background: #fde68a; color: #000; border: 1px solid #b45309;
+  border-radius: 999px; padding: .1rem .5rem; font-size: .75rem; font-weight: 700; }
+.banner-prueba { margin-bottom: .6rem; }
+.resultado.prueba { background: var(--alerta-claro, #fef3c7); border: 2px solid #b45309; border-radius: 12px; padding: 1rem; }
 
 /* Botones */
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--toque); padding: .6rem 1.1rem;

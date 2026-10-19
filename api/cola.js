@@ -2,7 +2,7 @@
 //
 // Cada envío se guarda en el celular ANTES de intentar mandarlo. Estados visibles:
 //   "pendiente"  → «En el celular» (todavía no cuenta: «si no está en Odoo, no se hizo»)
-//   "enviado"    → «Enviado (INS-2026-00012)»
+//   "enviado"    → «Enviado a Odoo (INS-2026-00012)»; si es de modo prueba, «Guardado solo en el celular (modo prueba)»
 //   "rechazado"  → «Rechazado: motivo» (error de validación: no se reintenta solo)
 // Reintenta al volver la señal (evento "online"), al abrir la app, cada CONFIG.REINTENTO_MS y con
 // el botón «Reintentar ahora». Los reintentos usan SIEMPRE la misma idempotency_key (creada al
@@ -19,6 +19,19 @@ import { crearRegistro, escribirRegistro, enviarFormulario } from "./odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
 
 const CLAVE_LS = "hys_cola";
+
+// ---------------------------------------------------------------- modo prueba (18/10/2026 21:19, pedido de Jorge)
+// En producción SOLO F02 llega a Odoo (POST /api/v1/inspecciones del backend). F01 y F03–F08 se guardan
+// en este celular (api/odoo.js modo MOCK: localStorage "hys_mock_db_v2") y NO llegan a Odoo.
+export const TEXTO_PRUEBA = "Guardado solo en el celular (modo prueba) — no llega a Odoo";
+export const ETIQUETA_PRUEBA = "Modo prueba · no llega a Odoo";
+/** ¿Este formulario llega a Odoo de verdad? Solo F02 con el backend real. */
+export const formularioConectado = (cod) => cod === "F02" && CONFIG.MODO_ENVIO === "backend";
+/** ¿Este envío es de modo prueba? «crear»/«escribir» van siempre al guardado local (no hay endpoint en el
+ *  backend), también los guardados con versiones anteriores que no traían la marca simulado. Solo es real
+ *  un «enviar» al backend que respondió sin simulado. */
+export const envioEnPrueba = (e) => !!e && (e.operacion !== "enviar" || !!e.respuesta?.simulado
+  || (e.estado !== "enviado" && CONFIG.MODO_ENVIO !== "backend"));
 const oyentes = new Set();
 let cache = [];
 let listo = null;         // promesa de carga inicial
@@ -146,8 +159,9 @@ export function alCambiar(f) { oyentes.add(f); return () => oyentes.delete(f); }
 
 /** Quita de la cola los ya enviados (los pendientes no se tocan nunca desde acá). */
 export async function limpiarEnviados() {
-  const fuera = cache.filter((e) => e.estado === "enviado");
-  cache = cache.filter((e) => e.estado !== "enviado");
+  // Los de modo prueba NO se borran: son la única constancia de lo guardado en el celular (recuperación).
+  const fuera = cache.filter((e) => e.estado === "enviado" && !envioEnPrueba(e));
+  cache = cache.filter((e) => !fuera.includes(e));
   if (idb.db) for (const e of fuera) await idb.quitar(e.idempotency_key);
   else localStorage.setItem(CLAVE_LS, JSON.stringify(cache));
   avisar();

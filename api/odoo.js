@@ -539,13 +539,14 @@ const mock = {
     await demora();
     if (sinSenal()) throw new ErrorApi("Sin señal", 0);
     const db = this.db();
-    if (clave && db._idem[clave]) return db._idem[clave]; // reintento: misma respuesta (200)
+    if (clave && db._idem[clave]) return { ...db._idem[clave], simulado: true }; // reintento: misma respuesta (200)
     // Validación que en producción hace el backend (422): una Ficha por OT (§2.5).
     if (modelo === "x_hys_ficha" && db.x_hys_ficha.some((f) => (Array.isArray(f.x_ot_id) ? f.x_ot_id[0] : f.x_ot_id) === valores.x_ot_id)) {
       throw new ErrorApi("Esta OT ya tiene Ficha de Riesgos: se edita en Odoo", 422);
     }
     const reg = this.insertar(db, modelo, valores);
-    const resp = { odoo_model: modelo, odoo_id: reg.id, name: reg.x_name || String(reg.id) };
+    // simulado: true SIEMPRE — esto queda en el celular, no en Odoo (la pantalla no puede decir «Enviado a Odoo»).
+    const resp = { odoo_model: modelo, odoo_id: reg.id, name: reg.x_name || String(reg.id), simulado: true };
     if (clave) db._idem[clave] = resp;
     this.guardar(db);
     return resp;
@@ -554,14 +555,14 @@ const mock = {
     await demora();
     if (sinSenal()) throw new ErrorApi("Sin señal", 0); // simulación de falta de señal (solo MOCK)
     const db = this.db();
-    if (clave && db._idem[clave]) return db._idem[clave];
+    if (clave && db._idem[clave]) return { ...db._idem[clave], simulado: true };
     const regs = (db[modelo] || []).filter((r) => ids.includes(r.id));
     if (!regs.length) throw new ErrorApi("El registro no existe", 404);
     if (modelo === "x_hys_desvio" && valores.x_estado === "cerrado" && !valores.x_foto_cierre) {
       throw new ErrorApi("Sin foto del arreglo, el desvío no está cerrado", 422); // R-CIE-1 (§3.6)
     }
     regs.forEach((r) => Object.assign(r, aliviarImagenes(valores), { x_fecha_recepcion: new Date().toISOString() }));
-    const resp = { odoo_model: modelo, odoo_id: regs[0].id, name: regs[0].x_name || String(regs[0].id) };
+    const resp = { odoo_model: modelo, odoo_id: regs[0].id, name: regs[0].x_name || String(regs[0].id), simulado: true };
     if (clave) db._idem[clave] = resp;
     this.guardar(db);
     return resp;

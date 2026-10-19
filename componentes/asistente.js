@@ -19,7 +19,7 @@ import { h } from "./util.js";
 import { aviso } from "./campos.js";
 import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
-import { encolar, procesarCola, buscarEnvio } from "../api/cola.js";
+import { encolar, procesarCola, buscarEnvio, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "../api/cola.js";
 
 export async function montarAsistente(cont, def) {
   const claveBorrador = `hys_borrador_${def.codigo}`;
@@ -80,7 +80,9 @@ export async function montarAsistente(cont, def) {
   const cuerpo = h("section", { class: "paso" });
   const nav = h("nav", { class: "nav-pasos" });
   for (const ev of ["click", "change", "input", "pointerup"]) cuerpo.addEventListener(ev, revalidar);
-  cont.replaceChildren(titulo, borrador ? h("div", { class: "aviso info" }, "Seguís un borrador guardado en el celular. ",
+  const bannerPrueba = formularioConectado(def.codigo) ? "" : h("div", { class: "aviso alerta banner-prueba", id: "banner-prueba", role: "note" },
+    h("b", {}, `⚠ ${ETIQUETA_PRUEBA}`), h("br"), "Este formulario todavía no está conectado: lo que cargues queda solo en este celular.");
+  cont.replaceChildren(bannerPrueba, titulo, borrador ? h("div", { class: "aviso info" }, "Seguís un borrador guardado en el celular. ",
     h("button", { type: "button", class: "btn chico", onclick: descartar }, "Descartar")) : "", chipGps, progreso, cuerpo, nav);
 
   function pintar() {
@@ -167,10 +169,12 @@ export async function montarAsistente(cont, def) {
 
   function resultado(env) {
     progreso.replaceChildren();
+    const prueba = envioEnPrueba(env);
     const caja = env?.estado === "enviado"
-      ? h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, env.respuesta?.simulado ? "✅ Enviado (modo prueba)" : "✅ Enviado a Odoo"),
-        h("p", {}, `${env.respuesta.name}`),
-        env.respuesta?.simulado ? h("p", { class: "ayuda" }, "Modo prueba: los datos quedaron en este celular y no llegaron a Odoo.") : "")
+      ? (prueba
+        ? h("div", { class: "resultado prueba", id: "resultado" }, h("p", { class: "grande" }, `💾 ${TEXTO_PRUEBA}`),
+          h("p", {}, `${env.respuesta?.name || ""}`), h("p", { class: "ayuda" }, "Los datos quedaron en este celular. No cuentan como cargados en Odoo."))
+        : h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, "✅ Enviado a Odoo"), h("p", {}, `${env.respuesta.name}`)))
       : env?.estado === "rechazado"
         ? h("div", { class: "resultado error", id: "resultado" }, h("p", { class: "grande" }, "⛔ Rechazado"), h("p", {}, env.error))
         : h("div", { class: "resultado pendiente", id: "resultado" }, h("p", { class: "grande" }, "📱 Guardado en el celular"),

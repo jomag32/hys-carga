@@ -8,7 +8,7 @@ import { selectorObra } from "./componentes/selector-obra.js";
 import { montarAsistente } from "./componentes/asistente.js";
 import { aviso } from "./componentes/campos.js";
 import { leerUsuariosDeIngreso, ingresarInspector, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
-import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes } from "./api/cola.js";
+import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
 import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
@@ -65,7 +65,8 @@ function vistaInicio() {
     h("div", { class: "grilla-formularios" }, FORMULARIOS.map((f) =>
       h("a", { class: "btn-formulario", href: `#/${f.ruta}`, id: `ir-${f.ruta}` },
         h("span", { class: "icono", "aria-hidden": "true" }, f.icono),
-        h("span", { class: "texto" }, h("b", {}, `${f.cod} · ${f.titulo}`), h("small", {}, f.donde))))),
+        h("span", { class: "texto" }, h("b", {}, `${f.cod} · ${f.titulo}`), h("small", {}, f.donde),
+          formularioConectado(f.cod) ? "" : h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA))))),
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"));
 }
 
@@ -137,8 +138,9 @@ function vistaIngreso() {
 }
 
 function vistaEnvios() {
-  const prueba = CONFIG.MODO_ENVIO === "simulado";
-  const ESTADO = { pendiente: "📱 En el celular", enviado: prueba ? "✅ Enviado (modo prueba)" : "✅ Enviado a Odoo", rechazado: "⛔ Rechazado" };
+  // «Enviado a Odoo» solo si el backend real respondió; lo de modo prueba quedó en el celular.
+  const estado = (e) => (e.estado === "enviado" ? (envioEnPrueba(e) ? `💾 ${TEXTO_PRUEBA}` : "✅ Enviado a Odoo")
+    : e.estado === "pendiente" ? "📱 En el celular" : "⛔ Rechazado");
   const pintar = () => {
     const cola = listarCola();
     const pend = cola.filter((e) => e.estado === "pendiente").length;
@@ -148,9 +150,10 @@ function vistaEnvios() {
       h("div", { class: "acciones" },
         h("button", { type: "button", class: "btn primario", id: "btn-reintentar", onclick: async () => { await procesarCola(); pintar(); } }, "Reintentar ahora"),
         h("button", { type: "button", class: "btn secundario", onclick: async () => { await limpiarEnviados(); pintar(); } }, "Limpiar enviados")),
-      cola.length ? h("ul", { class: "lista-envios" }, cola.map((e) => h("li", { class: e.estado },
-        h("b", {}, `HYS-${e.formulario} · ${e.titulo}`), h("br"),
-        h("span", {}, ESTADO[e.estado], e.estado === "enviado" ? ` (${e.respuesta.name})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
+      cola.some((e) => envioEnPrueba(e)) ? h("p", { class: "ayuda" }, "Los de modo prueba quedan en la lista (no se limpian): son lo único guardado de esos formularios.") : "",
+      cola.length ? h("ul", { class: "lista-envios" }, cola.map((e) => h("li", { class: `${e.estado}${envioEnPrueba(e) ? " prueba" : ""}`, "data-clave": e.idempotency_key },
+        h("b", {}, `HYS-${e.formulario} · ${e.titulo}`), envioEnPrueba(e) ? [" ", h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA)] : "", h("br"),
+        h("span", { class: "estado-envio" }, estado(e), e.estado === "enviado" ? ` (${e.respuesta?.name || ""})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
         e.estado === "pendiente" && e.error ? h("small", {}, ` · último intento: ${e.error}`) : "",
         h("br"), h("small", {}, mostrarFechaHora(e.creado))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
       MODO_DEV ? panelDev(pintar) : "");
