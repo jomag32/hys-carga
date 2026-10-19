@@ -199,3 +199,6 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 .ayuda-instalar ol { margin: .4rem 0 .2rem 1.2rem; padding: 0; }
 .aviso-version { position: fixed; left: .75rem; right: .75rem; bottom: max(.75rem, env(safe-area-inset-bottom)); z-index: 50;
   background: var(--marca-oscura); color: #fff; padding: .75rem 1rem; border-radius: var(--radio); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+
+/* Versión de la app (inicio e ingreso): chiquita, para confirmar qué corre el celular. */
+.version-app { margin: 1.25rem 0 .25rem; text-align: center; font-size: .75rem; color: #6b7280; }

@@ -5,9 +5,14 @@
 //   Así un deploy nuevo llega solo, sin que el celular quede con código viejo.
 // · NUNCA intercepta llamadas a otros orígenes (hys-carga-api, Odoo): van directo a la red, sin copia.
 //   Tampoco toca nada que no sea GET. La cola sin señal (IndexedDB) es de la página, no de acá.
-// · VERSION: subirla cuando cambie este archivo o la lista CASCARA. El SW nuevo se instala, toma
-//   control enseguida y la página se recarga sola (o al volver al inicio si hay un formulario abierto).
-const VERSION = "2026-10-18.9";
+// · VERSION: subirla en CADA deploy (y la misma en componentes/version.js, que se ve en el inicio).
+//   El SW nuevo se instala, toma control enseguida y la página se recarga sola (o al volver al inicio
+//   si hay un formulario abierto).
+// · CDN de Render (s-maxage=300): después de un deploy puede seguir dando archivos viejos ~5 min.
+//   Por eso todo se pide a la red como «archivo?v=VERSION» (otra clave para la CDN → sale del servidor,
+//   ya nuevo) y se guarda en la copia con la clave sin «?v=». Así la copia de una versión nunca mezcla
+//   archivos de otra (antes, con cache:"reload", la CDN podía colar módulos viejos en la copia nueva).
+const VERSION = "2026-10-18.10";
 const CACHE = `hys-carga-cascara-${VERSION}`;
 const RED_MS = 4000;
 
@@ -16,7 +21,7 @@ const CASCARA = [
   "api/cola.js", "api/config.js", "api/datos-mock.js", "api/odoo.js",
   "componentes/asistente.js", "componentes/campos-auto.js", "componentes/campos.js", "componentes/checklist.js",
   "componentes/encabezado.js", "componentes/pwa.js", "componentes/selector-inspector.js", "componentes/selector-obra.js",
-  "componentes/selector-turno.js", "componentes/sesion.js", "componentes/util.js",
+  "componentes/selector-turno.js", "componentes/sesion.js", "componentes/util.js", "componentes/version.js",
   "vistas/_inspeccion-planta.js", "vistas/f01-ficha-riesgo.js", "vistas/f02-inspeccion-obra.js", "vistas/f03-recorrida-fabrica.js",
   "vistas/f04-check-instalaciones.js", "vistas/f05-evento.js", "vistas/f06-vencimiento-legal.js", "vistas/f07-cierre-desvio.js",
   "vistas/f08-ats-turno.js",
@@ -25,12 +30,17 @@ const CASCARA = [
   "iconos/apple-touch-icon.png", "iconos/favicon-32.png"
 ];
 
+// URL de red de un archivo propio: misma ruta con ?v=VERSION (rompe la caché de la CDN y del navegador).
+const deRed = (ruta) => { const u = new URL(ruta, self.registration.scope); u.searchParams.set("v", VERSION); return u.href; };
+// Copia sin la URL «?v=» (la página ve el archivo con su ruta de siempre; los import relativos no cambian).
+const limpia = async (r) => new Response(await r.blob(), { status: r.status, statusText: r.statusText, headers: r.headers });
+
 self.addEventListener("install", (ev) => {
   ev.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    // cache: "reload" → baja del servidor, no de la caché HTTP del navegador (evita guardar algo viejo).
+    // ?v=VERSION + cache:"reload" → baja del servidor (ni CDN ni caché del navegador); se guarda sin «?v=».
     await Promise.all(CASCARA.map(async (u) => {
-      try { const r = await fetch(new Request(u, { cache: "reload" })); if (r.ok) await c.put(u, r); }
+      try { const r = await fetch(new Request(deRed(u), { cache: "reload" })); if (r.ok) await c.put(u, await limpia(r)); }
       catch (e) { /* un archivo que falla no frena la instalación; se guarda cuando se use con señal */ }
     }));
     await self.skipWaiting();
@@ -62,8 +72,12 @@ async function redPrimero(req, url) {
   const c = await caches.open(CACHE);
   // Navegación (abrir la app, con cualquier #ruta o ?parámetro) → siempre index.html.
   const clave = req.mode === "navigate" ? "index.html" : url.pathname.slice(self.registration.scope.length - self.location.origin.length) || "./";
-  const red = fetch(req, { cache: "no-cache" }).then(async (r) => {
-    if (r.ok && r.type === "basic") await c.put(clave, r.clone());
+  // A la red siempre con ?v=VERSION (index.html para las navegaciones): con señal llega lo de ESTA versión
+  // aunque la CDN tenga guardado algo anterior. Sin señal o si tarda más de RED_MS, la copia (misma versión).
+  const red = fetch(deRed(req.mode === "navigate" ? "index.html" : url.pathname + url.search), { cache: "no-cache", credentials: "same-origin" }).then(async (r0) => {
+    if (!r0.ok || r0.type !== "basic") return r0;
+    const r = await limpia(r0);
+    await c.put(clave, r.clone());
     return r;
   });
   const copia = await c.match(clave) || (req.mode === "navigate" ? await c.match("./") : null);

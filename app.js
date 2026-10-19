@@ -12,6 +12,7 @@ import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, cont
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
 import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
+import { etiquetaVersion } from "./componentes/version.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 export const FORMULARIOS = [
@@ -67,7 +68,8 @@ function vistaInicio() {
         h("span", { class: "icono", "aria-hidden": "true" }, f.icono),
         h("span", { class: "texto" }, h("b", {}, `${f.cod} · ${f.titulo}`), h("small", {}, f.donde),
           formularioConectado(f.cod) ? "" : h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA))))),
-    h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"));
+    h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"),
+    etiquetaVersion());
 }
 
 // Ingreso: 1) tu nombre (inspectores activos de HyS, Odoo x_hys_inspector), 2) tu contraseña, 3) la obra.
@@ -93,7 +95,7 @@ function vistaIngreso() {
         type: "button", class: "btn-lista", "data-usuario-id": u.id,
         onclick: () => paso2(u)
       }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
-      bloqueInstalar());
+      bloqueInstalar(), etiquetaVersion());
   };
   // 2) contraseña propia del inspector (la verifica el backend; sin señal, la huella guardada en este celular).
   const paso2 = (u) => {
@@ -132,7 +134,7 @@ function vistaIngreso() {
         location.hash = "#/";
       } }),
       h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
-      bloqueInstalar());
+      bloqueInstalar(), etiquetaVersion());
   };
   if (s.usuario) paso3(); else paso1();
 }

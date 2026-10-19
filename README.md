@@ -133,6 +133,9 @@ Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UT
 - `manifest.webmanifest` («HyS · Tecnología ARME», corto «HyS ARME», pantalla completa, `start_url`/`scope` = `./`, color `#163f8b`, `es-AR`), íconos en `iconos/` (escudo naranja, 192/512, *maskable* y `apple-touch-icon` 180) y metas de iOS en `index.html`.
 - `sw.js` (service worker): guarda la «cáscara» (HTML, JS, CSS, íconos, `datos/*.json`) para **abrir la app sin señal**. **Red primero** para todo lo propio (si hay señal siempre usa lo último publicado; sin señal o si tarda > 4 s, la copia). **Nunca** toca las llamadas a `hys-carga-api` ni a Odoo (otro origen) ni nada que no sea GET. La cola de envíos (IndexedDB) no cambia.
 - Versiones: subir `VERSION` en `sw.js` cuando cambie ese archivo o su lista `CASCARA` (p. ej. al agregar un formulario). El SW nuevo toma control solo y la página se recarga; si hay un formulario abierto, avisa y recarga al volver al inicio. El código nuevo de la app llega aunque no se suba `VERSION` (red primero).
+- **Versión visible** (18/10/2026): abajo del inicio y del ingreso, chiquito, «v 2026-10-18.10» (`componentes/version.js`, igual a `VERSION` de `sw.js`; subir las dos en cada deploy). Si el service worker activo es de otra versión se ve «v X · sw Y».
+- **CDN de Render** (`s-maxage=300`): tras un deploy puede dar archivos viejos ~5 min. El service worker pide todo como `archivo?v=VERSION` (al instalar y con señal) y lo guarda sin el `?v=`, así la copia de una versión nunca mezcla archivos de otra.
+- **F02 arranca siempre con la obra vacía**, también al retomar un borrador (se borran la obra, las respuestas y el hito, y vuelve al paso «Obra»).
 - Pantalla de ingreso: botón «📲 Instalar app en el celular» (Android/Chrome) o pasos para iPhone (`componentes/pwa.js`). `?sw=0` desactiva el service worker para depurar.
 
 ### Cómo instalarla (para inspectores)

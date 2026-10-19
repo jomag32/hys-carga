@@ -54,15 +54,16 @@ export default {
     ctx.items = itemsPlantillaF02();
     ctx.inspectores = await leerInspectores(); // [{id, nombre, legajo}] de x_hys_inspector (backend) o ejemplos
   },
-  // Al retomar un borrador ya pasado el paso «Obra»: leer la Ficha antes de pintar (bloques de riesgo e hitos).
-  async retomar(d, ctx) {
-    // Borradores viejos (antes del 18/10/2026 22:35) traían la obra del ingreso marcada sola: si la persona
-    // no la eligió en ese borrador (obra_elegida), se quita y hay que elegirla.
-    if (d.obra && !d.obra_elegida) { delete d.obra; d.respuestas = {}; d.ficha_hito_id = null; }
-    const id = d.obra?.id;
-    if (!esObra(d) || !id || id === "planta") return;
-    try { ctx.fichas[id] = { estado: "ok", f: await leerFichaObra(id) }; }
-    catch (e) { ctx.fichas[id] = { estado: "error", error: e.message }; }
+  // Al abrir F02 (nuevo o retomando un borrador): la obra arranca SIEMPRE vacía (pedido de Jorge 18/10/2026
+  // 22:35 y 22:50: «en blanco cada vez»). Un borrador guardado pierde la obra y lo que depende de ella
+  // (respuestas de los ítems, hito, modalidad remota) y vuelve como mucho al paso «Obra». Nada más pone
+  // d.obra sin un toque: inicial() no la trae y el selector va con prefill:false.
+  async retomar(d) {
+    const habiaObra = d.obra !== undefined || d.obra_elegida !== undefined;
+    delete d.obra; delete d.obra_elegida;
+    d.ficha_hito_id = null;
+    if (habiaObra && esObra(d)) { d.respuestas = {}; d.modalidad = "presencial"; }
+    return { pasoMax: esObra(d) ? 1 : undefined }; // 1 = paso «Obra» (después de «Tipo de inspección»)
   },
   inicial: () => ({ ambito: "obra", tipo_programa: null, modalidad: "presencial", respuestas: {} }),
   get pasos() {
@@ -120,9 +121,9 @@ export default {
               { requerido: true, ayuda: "Hitos críticos de la Ficha de Riesgos. Inspección presencial dentro de las 72 h del inicio real del hito." });
           };
           // selectorObra primero (antes de pintar hito e info). Arranca VACÍO en todo F02 (prefill:false,
-          // pedido de Jorge 18/10/2026 22:35): ni la obra del ingreso ni la última elegida. Solo un borrador
-          // retomado conserva la obra que se eligió en ese borrador (se puede «Descartar»).
-          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", prefill: false, alCambiar: () => { d.obra_elegida = true; d.respuestas = {}; d.ficha_hito_id = null; pintar(); } });
+          // pedido de Jorge 18/10/2026): ni la obra del ingreso ni la última elegida ni la de un borrador
+          // (retomar la borra). Dentro de la misma carga, la obra elegida se mantiene al ir y volver de paso.
+          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", prefill: false, alCambiar: () => { d.respuestas = {}; d.ficha_hito_id = null; pintar(); } });
           pintar();
           return [selector, info, hito];
         },

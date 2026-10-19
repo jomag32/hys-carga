@@ -12,7 +12,8 @@
 //   inicial?: (ctx) => ({...})          // datos iniciales del formulario
 //   pasos: [...] o (ctx) => [...], cada uno { titulo, visible?(d, ctx), dibujar(d, ctx) → Node|Node[], validar?(d, ctx) → "error"|null }],
 //   cabecera?: (d, ctx) => Node|null    // franja arriba de cada paso (no en Revisión), p. ej. «Obra: X · Cambiar»
-//   retomar?: async (d, ctx) => {...}  // ajusta datos al abrir (también al retomar un borrador)
+//   retomar?: async (d, ctx) => {...}  // ajusta datos al abrir (también al retomar un borrador); puede
+//                                       // devolver {pasoMax: n} para que un borrador no siga más allá del paso n
 //   resumen: (d, ctx) => [[etiqueta, valor], ...],
 //   armar: (d, auto, ctx) => ({ operacion: "crear"|"escribir", modelo, valores, ids? })
 // }
@@ -37,7 +38,10 @@ export async function montarAsistente(cont, def) {
   let i = borrador?.paso || 0;
   let error = null;
   // Datos que dependen de lo ya elegido (p. ej. la Ficha de la obra en F02) antes de retomar un borrador.
-  try { await def.retomar?.(d, ctx); } catch (e) { console.warn("retomar", e); }
+  try {
+    const r = await def.retomar?.(d, ctx);
+    if (Number.isInteger(r?.pasoMax) && i > r.pasoMax) i = r.pasoMax;
+  } catch (e) { console.warn("retomar", e); }
 
   // D-03: el GPS se toma al cargar el formulario; si falla, se envía igual con la marca.
   const pedirGps = () => {
