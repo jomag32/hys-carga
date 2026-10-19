@@ -176,7 +176,13 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 .buscador-obras { margin-bottom: .3rem; }
 .lista-obras { max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .lista-obras .btn-lista { text-align: left; }
-.num-proyecto { color: var(--gris); font-weight: 400; }
+/* Filas de obra: no se encogen dentro de la lista con scroll (antes el flex las aplastaba y el texto
+   se montaba sobre la fila siguiente) y van en una sola línea: OT · empresa… · Proy. N */
+.lista-botones > * { flex-shrink: 0; }
+.lista-obras .btn-lista { display: flex; align-items: baseline; gap: .45rem; min-width: 0; width: 100%; }
+.obra-ot { flex: none; white-space: nowrap; }
+.obra-empresa { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-proyecto { flex: none; white-space: nowrap; color: var(--gris); font-weight: 400; font-size: .8rem; }
 .obra-elegida p { margin: .2rem 0 .5rem; color: var(--ok); }
 /* Carga de obras desde el backend (puede tardar si el servidor estaba dormido) */
 .cargando-obras .girando { display: inline-block; animation: girar 1.6s linear infinite; }

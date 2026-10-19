@@ -23,6 +23,16 @@ export function coincide(o, texto) {
   return palabras.every((p) => pajar.includes(p));
 }
 
+// Fila compacta (18/10/2026, pedido de Jorge): «OT 4081» destacado, la empresa en UNA línea con «…»
+// y «Proy. N» chico. El nombre completo queda en title/aria-label y la búsqueda sigue usando o.name.
+function filaObra(o) {
+  if (o.id === "planta") return [h("span", { class: "obra-empresa" }, o.name)];
+  const m = /^\s*(OT\s*\d+)\s*[-–·:]?\s*(.*)$/i.exec(o.name || "");
+  return [m ? h("b", { class: "obra-ot" }, m[1].replace(/^OT\s*/i, "OT ")) : "",
+    h("span", { class: "obra-empresa" }, m ? m[2] || "" : o.name),
+    h("small", { class: "num-proyecto" }, `Proy. ${o.id}`)];
+}
+
 /**
  * selectorObra(d, "obra", {incluirPlanta, alCambiar}) → elemento.
  * d[clave] queda como {id, name, ot, partner_id, user_id, x_mock_km} (o LUGAR_PLANTA).
@@ -58,8 +68,10 @@ export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", inclui
       h("button", {
         type: "button", role: "option", class: `btn-lista ${d[clave]?.id === o.id ? "elegida" : ""}`, "aria-selected": String(d[clave]?.id === o.id),
         "data-obra-id": o.id,
+        title: o.id !== "planta" ? `${o.name} · Proyecto ${o.id}` : o.name,
+        "aria-label": o.id !== "planta" ? `${o.name}, proyecto ${o.id}` : o.name,
         onclick: () => { d[clave] = o; pintar(); pintarInfo(); alCambiar?.(o); }
-      }, h("span", {}, o.name), o.id !== "planta" ? h("small", { class: "num-proyecto" }, ` · Proyecto ${o.id}`) : ""))
+      }, ...filaObra(o)))
       : [h("p", { class: "ayuda" }, "Ninguna obra coincide con la búsqueda.")]));
   };
   // Carga: el backend (plan free de Render) puede tardar ~50 s en despertar → aviso amable.
