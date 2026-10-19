@@ -68,3 +68,13 @@ Prueba local de punta a punta (envío real a Odoo): backend local en el puerto 8
 - `POST /api/v1/ingreso` `{inspector_id, clave}` → `{token, vence, inspector}` · 401 contraseña incorrecta/vacía · 403 inactivo o «Este inspector no tiene contraseña configurada, consultá a HyS» · 429 tras 8 fallos (15 min).
 - `POST /api/v1/inspecciones` exige `Authorization: Bearer <token>`; «cargado por» sale del token.
 - Variables (Render → hys-carga-api → Environment): `HYS_PWD_<legajo>` = contraseña, una por inspector (`HYS_PWD_0001`, `HYS_PWD_0002`, …). Alternativa `HYS_LOGIN_PASSWORDS` (JSON). Opcional `HYS_SESSION_SECRET`.
+
+## F01 · POST /api/v1/fichas (18/10/2026)
+
+- Con sesión de inspector (`Authorization: Bearer <token>`, igual que `/inspecciones`). Crea `x_hys_ficha` con MIA, **siempre en `borrador`** (la app nunca aprueba; aprueba HyS en Odoo), con sus hitos (`x_hito_ids` → `x_hys_ficha_hito`).
+- Solo escribe campos que existen y son editables según `fields_get` en vivo; el resto vuelve en `descartados`. Protegidos (los pone Odoo/HyS/servidor): número, estado, aprobación, firma, clase, frecuencia, modalidad, avisos, cliente y director (los copia el servidor desde la OT).
+- Obra activa en etapa NO INICIADA(S), EN PROGRESO o PAUSADO; si no → 422. Lista para el celular: `GET /api/v1/obras?para=f01`. Riesgos: `GET /api/v1/riesgos`.
+- Una Ficha activa por OT: si ya hay → **409** `{codigo: "ficha_existente", ficha: {id, name, estado}}`.
+- Idempotente: misma clave → 200 `repetido`. El modelo no tiene campo de clave: tras un reinicio, si la OT ya tiene una Ficha creada por MIA en las últimas 48 h con la misma distancia y riesgos, se toma como el mismo envío (200).
+- Quién cargó: nota en el historial de la Ficha (si tiene chatter) «Cargada desde la app hys-carga por Legajo N · Nombre».
+- Respuesta 201: `{id, name (FR-… de la secuencia de Odoo), estado, clase}`.

@@ -69,8 +69,8 @@ export function crearCatalogos(cliente) {
   async function leerRiesgos() {
     if (riesgos.mapa && Date.now() < riesgos.hasta) return riesgos.mapa;
     const regs = await cliente().ejecutar("x_hys_riesgo", "search_read", [[]],
-      { fields: ["id", "x_codigo", "x_name", "x_gravedad", "x_secuencia"], order: "x_secuencia, id", context: { active_test: false } });
-    riesgos = { mapa: new Map(regs.map((r) => [r.id, { id: r.id, codigo: r.x_codigo, nombre: r.x_name, gravedad: r.x_gravedad || null, secuencia: r.x_secuencia ?? 0 }])),
+      { fields: ["id", "x_codigo", "x_name", "x_gravedad", "x_secuencia", "x_active"], order: "x_secuencia, id", context: { active_test: false } });
+    riesgos = { mapa: new Map(regs.map((r) => [r.id, { id: r.id, codigo: r.x_codigo, nombre: r.x_name, gravedad: r.x_gravedad || null, secuencia: r.x_secuencia ?? 0, activo: r.x_active !== false }])),
       hasta: Date.now() + CACHE_MS };
     return riesgos.mapa;
   }
@@ -115,5 +115,13 @@ export function crearCatalogos(cliente) {
     return (await fichaDeOt(ot))?.hitos || [];
   }
 
-  return { leerInspectores, buscarInspector, leerHitos, leerFichas, fichaDeOt, leerRiesgos };
+  /** Riesgos activos para el F01 del celular: [{id, codigo, nombre, gravedad}] ordenados. */
+  async function listarRiesgos() {
+    return [...(await leerRiesgos()).values()].filter((r) => r.activo).sort((a, b) => a.secuencia - b.secuencia || a.id - b.id)
+      .map(({ id, codigo, nombre, gravedad }) => ({ id, codigo, nombre, gravedad }));
+  }
+  /** Después de crear una Ficha: la próxima lectura va a Odoo. */
+  const olvidarFichas = () => { fichas = { lista: null, hasta: 0 }; };
+
+  return { leerInspectores, buscarInspector, leerHitos, leerFichas, fichaDeOt, leerRiesgos, listarRiesgos, olvidarFichas };
 }

@@ -110,8 +110,9 @@ export async function ingresarInspector(inspectorId, clave) {
 // Si el backend no responde se usa la última lista REAL guardada en este celular (avisando la
 // fecha); si no hay ninguna, error → el selector muestra «Reintentar». Nunca ejemplos en producción.
 const CLAVE_OBRAS = `hys_obras_cache_${CONFIG.OBRAS_FUENTE}`;
-let obrasCache = null;
-let obrasEnCurso = null;
+// Dos listas: "" = obras en curso (ingreso, F02); "f01" = además NO INICIADAS (Ficha al crear la OT).
+const obrasCache = new Map();
+const obrasEnCurso = new Map();
 /** De dónde salió la última lista: {origen: "backend"|"ejemplo"|"copia", fecha}. */
 export const estadoObras = { origen: null, fecha: null };
 
@@ -130,7 +131,7 @@ async function leerDelBackend(ruta) {
   if (!r.ok) throw new ErrorApi(datos?.error || `El servidor respondió con error ${r.status}`, r.status);
   return datos;
 }
-const obrasDelBackend = () => leerDelBackend("/obras");
+const obrasDelBackend = (para = "") => leerDelBackend(para ? `/obras?para=${para}` : "/obras");
 
 /** Lee un catálogo y guarda copia; sin señal usa la última copia REAL (nunca ejemplos en producción).
  *  Un 401 (sesión vencida) no usa la copia: hay que volver a ingresar. */
@@ -246,29 +247,44 @@ async function obrasDeEjemplo() {
 
 const aM2o = (v) => (Array.isArray(v) ? v : v ? [null, v] : false);
 
-export function listarObrasActivas() {
-  if (obrasCache) return Promise.resolve(obrasCache);
-  obrasEnCurso ??= (async () => {
+export function listarObrasActivas(para = "") {
+  if (obrasCache.has(para)) return Promise.resolve(obrasCache.get(para));
+  const claveLs = CLAVE_OBRAS + (para ? `_${para}` : "");
+  if (!obrasEnCurso.has(para)) obrasEnCurso.set(para, (async () => {
     let obras = null;
     try {
-      obras = CONFIG.OBRAS_FUENTE === "backend" ? await obrasDelBackend() : await obrasDeEjemplo();
+      obras = CONFIG.OBRAS_FUENTE === "backend" ? await obrasDelBackend(para) : await obrasDeEjemplo();
       if (!Array.isArray(obras)) throw new Error("La lista de obras llegó vacía o con otro formato");
       Object.assign(estadoObras, { origen: CONFIG.OBRAS_FUENTE, fecha: new Date().toISOString() });
       bajarFichas(); // copia de las Fichas para trabajar sin señal
-      try { localStorage.setItem(CLAVE_OBRAS, JSON.stringify({ fecha: estadoObras.fecha, obras })); } catch (e) { /* lleno */ }
+      try { localStorage.setItem(claveLs, JSON.stringify({ fecha: estadoObras.fecha, obras })); } catch (e) { /* lleno */ }
     } catch (e) {
-      const copia = JSON.parse(localStorage.getItem(CLAVE_OBRAS) || "null"); // última lista real, para usar sin señal
+      const copia = JSON.parse(localStorage.getItem(claveLs) || "null"); // última lista real, para usar sin señal
       if (!copia?.obras?.length) throw e;
       obras = copia.obras;
       Object.assign(estadoObras, { origen: "copia", fecha: copia.fecha });
     }
-    obrasCache = obras.map((o) => ({
+    const lista = obras.map((o) => ({
       ...o, ot: o.ot ?? numeroOt(o.name),
       partner_id: o.partner_id ?? aM2o(o.partner), user_id: o.user_id ?? aM2o(o.director)
     })).sort((a, b) => (a.ot == null) - (b.ot == null) || Number(a.ot) - Number(b.ot) || String(a.name).localeCompare(String(b.name), "es"));
-    return obrasCache;
-  })().finally(() => { obrasEnCurso = null; });
-  return obrasEnCurso;
+    obrasCache.set(para, lista);
+    return lista;
+  })().finally(() => { obrasEnCurso.delete(para); }));
+  return obrasEnCurso.get(para);
+}
+
+// ---------------------------------------------------------------- F01: riesgos y fichas (formato del backend)
+/** Riesgos activos [{id, codigo, nombre, gravedad}]. Producción: GET /api/v1/riesgos (ids reales de Odoo). */
+export async function leerRiesgosF01() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") return M.RIESGOS.filter((r) => r.x_active !== false)
+    .map((r) => ({ id: r.id, codigo: r.x_codigo, nombre: r.x_name, gravedad: r.x_gravedad || null }));
+  return conCopia("riesgos", () => leerDelBackend("/riesgos"));
+}
+/** Fichas activas [{id, nombre, ot, estado}] para el control «esta OT ya tiene Ficha». Producción: GET /api/v1/fichas (sin caché local). */
+export async function leerFichasF01() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") return M.FICHAS.map((f) => ({ id: f.id, nombre: f.x_name, ot: f.x_ot_id[0], estado: f.x_estado }));
+  return conCopia("fichas", () => leerDelBackend("/fichas"));
 }
 
 /** "OT 9101 - X", "0T-9101-X", "OT.9101 X" → "9101". */
@@ -398,7 +414,7 @@ const simulado = {
     const ya = lista.find((x) => x.idempotency_key === clave);
     if (ya) return { ...ya.respuesta, repetido: true }; // mismo envío: misma respuesta (200), sin duplicar
     const n = lista.filter((x) => x.endpoint === `POST /api/v1${endpoint}`).length + 1;
-    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
+    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
     lista.unshift({ idempotency_key: clave, endpoint: `POST /api/v1${endpoint}`, recibido: new Date().toISOString(),
       respuesta, cuerpo: recortarBase64(cuerpo) });
     try { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 30))); }

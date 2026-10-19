@@ -13,6 +13,9 @@
 //   GET  /api/v1/hitos?ot=<id>    → (sesión) hitos de la ficha activa de la OT (x_hys_ficha_hito; ya no project.milestone)
 //   POST /api/v1/ingreso          → {inspector_id, clave} → token de sesión (contraseña por inspector, ver ingreso.js)
 //   POST /api/v1/inspecciones     → (Authorization: Bearer <token>) create de x_hys_inspeccion + líneas (idempotente; 201 nuevo, 200 repetido)
+//   GET  /api/v1/obras?para=f01   → (sesión) igual que /obras pero con obras NO INICIADAS además de EN PROGRESO / PAUSADO
+//   GET  /api/v1/riesgos          → (sesión) riesgos activos de x_hys_riesgo [{id, codigo, nombre, gravedad}] para el F01
+//   POST /api/v1/fichas           → (sesión) create de x_hys_ficha (BORRADOR) + hitos; 201 nueva, 200 repetida, 409 si la OT ya tiene Ficha
 
 import http from "node:http";
 import { crearCliente, ErrorOdoo } from "./odoo.js";
@@ -20,6 +23,7 @@ import { armarObras } from "./obras.js";
 import { crearCatalogos } from "./catalogos.js";
 import { crearInspecciones, ErrorEntrada } from "./inspecciones.js";
 import { crearIngreso, ErrorIngreso } from "./ingreso.js";
+import { crearAltaFichas, ETAPAS_FICHA } from "./fichas-alta.js";
 
 const PORT = Number(process.env.PORT) || 10000;
 const ETAPAS = (process.env.OBRAS_ETAPAS || "EN PROGRESO,PAUSADO").split(",").map((s) => s.trim()).filter(Boolean);
@@ -36,25 +40,34 @@ const cliente = () => (odoo ??= crearCliente({
 
 const catalogos = crearCatalogos(cliente);
 const inspecciones = crearInspecciones(cliente, catalogos);
+const altaFichas = crearAltaFichas(cliente, catalogos);
 // Firma de sesiones: HYS_SESSION_SECRET si está; si no, la credencial de servicio (estable entre reinicios).
 const ingreso = crearIngreso({ catalogos, secreto: process.env.HYS_SESSION_SECRET || process.env.ODOO_PASSWORD || null });
 
 // ---------------------------------------------------------------- obras (caché en memoria)
-let cache = { obras: null, hasta: 0, fecha: null };
-let enCurso = null;
+// «curso»: etapas OBRAS_ETAPAS (ingreso, F02). «f01»: además NO INICIADAS (la Ficha se carga al crear la OT).
+const caches = { curso: { obras: null, hasta: 0, fecha: null }, f01: { obras: null, hasta: 0, fecha: null } };
+const enCursoObras = {};
 
-async function leerObras() {
-  if (cache.obras && Date.now() < cache.hasta) return { obras: cache.obras, origen: "cache" };
-  enCurso ??= (async () => {
+function dominioObras(tipo) {
+  const base = [["active", "=", true], ["is_template", "=", false]];
+  if (tipo === "curso") return [["stage_id.name", "in", ETAPAS], ...base];
+  const ors = ETAPAS_FICHA.map((e) => ["stage_id.name", "=ilike", `${e}%`]);
+  return [...Array(ors.length - 1).fill("|"), ...ors, ...base];
+}
+
+async function leerObras(tipo = "curso") {
+  const c = caches[tipo];
+  if (c.obras && Date.now() < c.hasta) return { obras: c.obras, origen: "cache", fecha: c.fecha };
+  enCursoObras[tipo] ??= (async () => {
     try {
-      const regs = await cliente().ejecutar("project.project", "search_read",
-        [[["stage_id.name", "in", ETAPAS], ["active", "=", true], ["is_template", "=", false]]],
+      const regs = await cliente().ejecutar("project.project", "search_read", [dominioObras(tipo)],
         { fields: ["id", "name", "partner_id", "user_id"], order: "id" });
-      cache = { obras: armarObras(regs), hasta: Date.now() + CACHE_MS, fecha: new Date().toISOString() };
-      return { obras: cache.obras, origen: "odoo" };
-    } finally { enCurso = null; }
+      caches[tipo] = { obras: armarObras(regs), hasta: Date.now() + CACHE_MS, fecha: new Date().toISOString() };
+      return { obras: caches[tipo].obras, origen: "odoo", fecha: caches[tipo].fecha };
+    } finally { enCursoObras[tipo] = null; }
   })();
-  return enCurso;
+  return enCursoObras[tipo];
 }
 
 // ---------------------------------------------------------------- utilidades HTTP
@@ -135,17 +148,37 @@ const servidor = http.createServer(async (req, res) => {
 
     // Catálogos con datos de obras (nombres de proyectos y clientes): solo con sesión de inspector.
     // /api/v1/inspectores queda abierto porque es la lista para ingresar.
-    const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos"];
+    const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos", "/api/v1/riesgos"];
     if (req.method === "GET" && SESION_GET.includes(ruta) && !sesionDe(req)) return sinSesion(res);
 
     if (ruta === "/api/v1/obras" && req.method === "GET") {
+      const tipo = new URL(req.url, "http://x").searchParams.get("para") === "f01" ? "f01" : "curso";
       try {
-        const { obras, origen } = await leerObras();
-        return json(res, 200, obras, { "X-Origen": origen, "X-Actualizado": cache.fecha || "" });
+        const { obras, origen, fecha } = await leerObras(tipo);
+        return json(res, 200, obras, { "X-Origen": origen, "X-Actualizado": fecha || "" });
       } catch (e) {
         log("obras: error", e instanceof ErrorOdoo ? e.message : e?.name || "error");
-        if (cache.obras) return json(res, 200, cache.obras, { "X-Origen": "cache-vencida", "X-Actualizado": cache.fecha });
+        const c = caches[tipo];
+        if (c.obras) return json(res, 200, c.obras, { "X-Origen": "cache-vencida", "X-Actualizado": c.fecha });
         return json(res, 502, { error: "No se pudo leer la lista de obras desde Odoo. Probá de nuevo en un rato." });
+      }
+    }
+    if (ruta === "/api/v1/riesgos" && req.method === "GET") {
+      try { return json(res, 200, await catalogos.listarRiesgos()); }
+      catch (e) { return responderError(res, e, "riesgos"); }
+    }
+    if (ruta === "/api/v1/fichas" && req.method === "POST") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
+        const cuerpo = await leerCuerpo(req);
+        const r = await altaFichas.recibir(cuerpo, { sesion });
+        log(`fichas: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}${r.cuerpo.descartados?.length ? ` · descartados ${r.cuerpo.descartados.join(", ")}` : ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) {
+        if (e instanceof ErrorEntrada && e.estado === 409) log("fichas: rechazada, la OT ya tiene ficha");
+        if (e instanceof ErrorEntrada && e.estado === 413) req.resume();
+        return responderError(res, e, "fichas");
       }
     }
     if (ruta === "/api/v1/inspectores" && req.method === "GET") {
@@ -194,7 +227,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "POST /api/v1/ingreso", "POST /api/v1/inspecciones"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "POST /api/v1/fichas"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

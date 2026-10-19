@@ -10,7 +10,7 @@ import { mostrarFechaHora } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { LUGAR_PLANTA } from "../api/datos-mock.js";
 
-export const leerObras = () => listarObrasActivas();
+export const leerObras = (para = "") => listarObrasActivas(para);
 
 /** "Galpón Ejemplo OT-9101" → "galpon ejemplo ot-9101" (sin acentos ni mayúsculas). */
 export const normalizar = (t) => String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -37,7 +37,7 @@ function filaObra(o) {
  * selectorObra(d, "obra", {incluirPlanta, alCambiar}) → elemento.
  * d[clave] queda como {id, name, ot, partner_id, user_id, x_mock_km} (o LUGAR_PLANTA).
  */
-export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", incluirPlanta = false, alCambiar, requerido = true } = {}) {
+export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", incluirPlanta = false, alCambiar, requerido = true, para = "" } = {}) {
   const sesion = leerSesion();
   if (d[clave] === undefined && sesion.obra && (incluirPlanta || sesion.obra.id !== "planta")) d[clave] = sesion.obra;
   let opciones = [];
@@ -80,7 +80,7 @@ export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", inclui
     estado.replaceChildren(h("p", { class: "ayuda cargando-obras" }, h("span", { class: "girando", "aria-hidden": "true" }, "⏳"), " Cargando obras…"));
     const lento = setTimeout(() => estado.firstChild?.append(h("br"),
       "El servidor se está despertando; puede tardar hasta un minuto. No cierres la app."), 4000);
-    leerObras().then((obras) => {
+    leerObras(para).then((obras) => {
       clearTimeout(lento);
       estado.replaceChildren(estadoObras.origen === "copia"
         ? h("p", { class: "aviso" }, `Sin conexión con el servidor: se muestra la lista guardada el ${mostrarFechaHora(estadoObras.fecha)}.`)
