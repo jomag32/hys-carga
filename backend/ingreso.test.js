@@ -112,3 +112,12 @@ test("de punta a punta: el inspector que ingresó queda en «cargado por»", asy
   await api.recibir(cuerpo, { sesion: g.verificar(token) });
   assert.equal(db[0].x_cargado_por, "Legajo 0002 · Inspector Ejemplo Dos · Inspector HyS · OT 9101");
 });
+
+test("encargado de sector activo con HYS_PWD_<legajo> entra; sin la variable, no", async () => {
+  const cat = { buscarInspector: async (id) => (id === 7 ? { id: 7, x_name: "Encargado Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito" } : null) };
+  const g = crearIngreso({ catalogos: cat, claves: () => leerClaves({ HYS_PWD_0004: "clave-ejemplo" }), secreto: "s" });
+  const r = await g.ingresar({ inspector_id: 7, clave: "clave-ejemplo" });
+  assert.deepEqual(g.verificar(r.token), { inspector_id: 7, legajo: "4" });
+  const sin = crearIngreso({ catalogos: cat, claves: () => leerClaves({}), secreto: "s" });
+  await rechaza(sin.ingresar({ inspector_id: 7, clave: "x" }), 403);
+});

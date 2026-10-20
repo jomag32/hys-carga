@@ -15,6 +15,8 @@ import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
 import { etiquetaVersion } from "./componentes/version.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
+/** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
+export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08") : FORMULARIOS);
 export const FORMULARIOS = [
   { cod: "F01", ruta: "f01", archivo: "f01-ficha-riesgo.js", titulo: "Ficha de Riesgos de Obra", donde: "Inicio de obra", icono: "📋" },
   { cod: "F02", ruta: "f02", archivo: "f02-inspeccion-obra.js", titulo: "Inspección de obra", donde: "Obra", icono: "🦺" },
@@ -38,7 +40,7 @@ async function rutear() {
   // Con backend real hace falta el token de la contraseña (ingreso por inspector, 18/10/2026 19:34).
   if (s.usuario && (!usuarioVigente(s.usuario) || (CONFIG.OBRAS_FUENTE === "backend" && !s.usuario.token)
     || (s.usuario.vence && Date.parse(s.usuario.vence) < Date.now()))) { cerrarSesion(); s = leerSesion(); }
-  const form = FORMULARIOS.find((f) => f.ruta === ruta);
+  const form = formulariosDe(leerSesion().usuario).find((f) => f.ruta === ruta);
   try {
     if (ruta === "ingresar" || ruta === "obra" || ruta === "sesion") return vistaIngreso();
     if (ruta === "salir") { cerrarSesion(); location.replace("#/ingresar"); return; }
@@ -63,7 +65,7 @@ function vistaInicio() {
       h("span", {}, `📱 ${pend} envío${pend > 1 ? "s" : ""} en el celular, sin mandar todavía.`),
       h("button", { type: "button", class: "btn chico", onclick: async () => { await procesarCola(); rutear(); } }, "Reintentar")) : "",
     h("h1", { class: "titulo-inicio" }, "¿Qué vas a cargar?"),
-    h("div", { class: "grilla-formularios" }, FORMULARIOS.map((f) =>
+    h("div", { class: "grilla-formularios" }, formulariosDe(leerSesion().usuario).map((f) =>
       h("a", { class: "btn-formulario", href: `#/${f.ruta}`, id: `ir-${f.ruta}` },
         h("span", { class: "icono", "aria-hidden": "true" }, f.icono),
         h("span", { class: "texto" }, h("b", {}, `${f.cod} · ${f.titulo}`), h("small", {}, f.donde),

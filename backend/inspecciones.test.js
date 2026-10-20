@@ -51,7 +51,8 @@ const cuerpo = (k = clave(), fecha = "2026-10-18 12:00:00") => ({ formulario: "F
   x_linea_ids: [[0, 0, { x_name: "Ítem", x_bloque: "General", x_respuesta: "si" }]] } },
   contexto: { cargado_por_inspector_id: 10, lugar: "OT 9101" } });
 // Inspectores activos de ejemplo: 9 (el elegido en el formulario) y 10 (quien carga). 11 = archivado.
-const ACTIVOS = { 9: { id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }, 10: { id: 10, x_name: "Cargador Ejemplo", x_legajo: "2" } };
+const ACTIVOS = { 9: { id: 9, x_name: "Inspector Ejemplo", x_legajo: "1" }, 10: { id: 10, x_name: "Cargador Ejemplo", x_legajo: "2" },
+  12: { id: 12, x_name: "Encargado Ejemplo", x_legajo: "4", x_rol: "encargado", x_sector: "deposito" } };
 const catalogosFalsos = { buscarInspector: async (id) => ACTIVOS[id] || null, fichaDeOt: async () => null };
 const conSesion = (api, sesion = { inspector_id: 10 }) => ({ ...api, recibir: (c, o = {}) => api.recibir(c, { sesion, ...o }) });
 const armar = (o) => { const f = odooFalso(o); return { ...f, api: conSesion(crearInspecciones(() => f.cliente, catalogosFalsos)) }; };
@@ -178,4 +179,12 @@ test("quien carga sale de la sesión, no del cuerpo", async () => {
   const c = cuerpo(); c.contexto.cargado_por_inspector_id = 9; // intento de cargar «como» otro
   await api.recibir(c, { sesion: { inspector_id: 10 } });
   assert.match(f.db[0].x_cargado_por, /^Legajo 2 · Cargador Ejemplo/);
+});
+
+test("un encargado de sector no carga F02 ni figura como inspector", async () => {
+  const { api, db } = armar();
+  await assert.rejects(api.recibir(cuerpo(), { sesion: { inspector_id: 12 } }), (e) => e.estado === 403 && /solo pueden cargar el ATS/.test(e.message));
+  const c = cuerpo(); c.odoo.vals.x_inspector_hys_id = 12;
+  await assert.rejects(api.recibir(c), (e) => e.estado === 422 && /encargado de sector/.test(e.message));
+  assert.equal(db.length, 0);
 });

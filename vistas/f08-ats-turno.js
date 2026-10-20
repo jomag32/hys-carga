@@ -28,6 +28,9 @@ const nombreSector = (ctx, s) => ctx.cat.sectores.find(([k]) => k === s)?.[1] ||
 // ¿Ya hay un ATS válido para este turno? (uno «No autorizado» se puede rehacer: D-10)
 const bloqueante = (d) => (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado !== "no_autorizado");
 
+// Encargado de sector: solo su sector (el backend lo vuelve a controlar: 403).
+const soloSector = () => { const u = leerSesion().usuario; return u?.rol_hys === "encargado" ? u.sector || "ninguno" : null; };
+
 function buscarPrevios(d, ctx) {
   if (!d.sector || !d.fecha) return;
   const clave = `${d.sector}|${d.fecha}`;
@@ -42,7 +45,10 @@ export default {
   async preparar(ctx) {
     ctx.cat = await leerCatalogoAts();
   },
-  inicial: () => ({ fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no" }),
+  inicial: () => {
+    const u = leerSesion().usuario;
+    return { fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no", sector: u?.rol_hys === "encargado" ? u.sector || null : undefined };
+  },
   pasos: [
     {
       titulo: "Sector y turno",
@@ -52,7 +58,7 @@ export default {
         const rehace = (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado === "no_autorizado");
         const ponerResponsables = (t) => { d.encargado_id = t.encargado_id || d.encargado_id || null; d.autoriza_id = t.autoriza_id || d.autoriza_id || null; };
         return [
-          campoOpciones(d, "sector", "Sector", ctx.cat.sectores, {
+          campoOpciones(d, "sector", "Sector", ctx.cat.sectores.filter(([k]) => !soloSector() || k === soloSector()), {
             columnas: 2, requerido: true,
             alCambiar: () => { d.respuestas = {}; d.turno = null; d.encargado_id = null; d.autoriza_id = null; ctx.refrescar(); }
           }),

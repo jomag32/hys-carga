@@ -154,6 +154,7 @@ export function crearAltaFichas(cliente, catalogos) {
     const p = (async () => {
       const cargador = await catalogos.buscarInspector(idCargador);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como inspector activo en Odoo (HyS > Inspectores). Avisá a HyS.");
+      if (cargador.x_rol === "encargado") throw new ErrorEntrada(403, "Los encargados de sector solo pueden cargar el ATS de turno (F08).");
 
       // Obra: existe, activa y en etapa permitida. Cliente y director salen de la OT (no del celular).
       const ot = (await cliente().ejecutar("project.project", "search_read", [[["id", "=", vals.x_ot_id ?? cuerpo.odoo.vals.x_ot_id]]],

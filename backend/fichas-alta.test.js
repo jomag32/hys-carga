@@ -36,7 +36,7 @@ function armar({ fichas = [] } = {}) {
   };
   const cliente = { ejecutar, uid: 7 };
   const mapa = new Map(RIESGOS.map((r) => [r.id, { id: r.id, codigo: r.x_codigo, gravedad: r.x_gravedad, activo: r.x_active }]));
-  const catalogos = { leerRiesgos: async () => mapa, buscarInspector: async (id) => (id === 2 ? { id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001" } : null), olvidarFichas: () => {} };
+  const catalogos = { leerRiesgos: async () => mapa, buscarInspector: async (id) => (id === 2 ? { id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001" } : id === 3 ? { id: 3, x_name: "Encargado Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "logistica" } : null), olvidarFichas: () => {} };
   return { api: crearAltaFichas(() => cliente, catalogos), db, llamadas };
 }
 const cuerpo = (extra = {}, clave = K) => ({ formulario: "F01", idempotency_key: clave, odoo: { model: "x_hys_ficha", method: "create", vals: {
@@ -118,4 +118,10 @@ test("validación: sin sesión 401, riesgos archivados/inexistentes, centro de s
   assert.deepEqual(err({ x_distancia_km: "" }), ["x_distancia_km"]);
   assert.deepEqual(err({ x_hito_ids: [[0, 0, { x_name: " " }]] }), ["x_hito_ids[0].x_name"]);
   assert.deepEqual(validarFicha({ ...cuerpo(), idempotency_key: "x" }, c, act).errores.map((e) => e.campo), ["idempotency_key"]);
+});
+
+test("un encargado de sector no carga Fichas F01 (403)", async () => {
+  const { api, db } = armar();
+  await assert.rejects(api.recibir(cuerpo({}, "6f1c2a9e-1111-4222-8333-0000000e0003"), { sesion: { inspector_id: 3 } }), (e) => e.estado === 403);
+  assert.equal(db.x_hys_ficha.length, 0);
 });

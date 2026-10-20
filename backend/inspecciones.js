@@ -7,6 +7,9 @@ import { textoInspector } from "./catalogos.js";
 const CAMPOS_MS = 10 * 60 * 1000;
 const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
 
+/** Los encargados de sector (x_rol «encargado») solo cargan el ATS de turno. */
+export const SOLO_F08 = "Los encargados de sector solo pueden cargar el ATS de turno (F08).";
+
 export class ErrorEntrada extends Error {
   constructor(estado, mensaje, extra = {}) { super(mensaje); this.estado = estado; this.extra = extra; }
 }
@@ -121,6 +124,7 @@ export function crearInspecciones(cliente, catalogos) {
       // copia en texto («Legajo N · Nombre»). x_inspector_id (empleado) ya no se completa.
       const inspector = await catalogos.buscarInspector(vals.x_inspector_hys_id);
       if (!inspector) throw new ErrorEntrada(422, "El inspector elegido no existe o está archivado en Odoo (HyS > Inspectores). Elegí otro.");
+      if (inspector.x_rol === "encargado") throw new ErrorEntrada(422, "Un encargado de sector no puede figurar como inspector. Elegí un inspector HyS.");
       if (c.inspeccion.x_inspector_texto) vals.x_inspector_texto = textoInspector(inspector);
 
       // Quién carga: tiene que ser un inspector ACTIVO de x_hys_inspector (los únicos que pueden ingresar).
@@ -131,6 +135,7 @@ export function crearInspecciones(cliente, catalogos) {
       if (!Number.isInteger(idCargador)) throw new ErrorEntrada(401, "Tu sesión venció o cambió tu contraseña: tocá «Salir» y volvé a ingresar con tu contraseña.");
       const cargador = idCargador === inspector.id ? inspector : await catalogos.buscarInspector(idCargador);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como inspector activo en Odoo (HyS > Inspectores). Avisá a HyS.");
+      if (cargador.x_rol === "encargado") throw new ErrorEntrada(403, SOLO_F08);
       if (c.inspeccion.x_cargado_por) {
         const lugar = typeof ctxEnvio.lugar === "string" && ctxEnvio.lugar.trim() ? ctxEnvio.lugar.trim().slice(0, 60) : null;
         vals.x_cargado_por = [textoInspector(cargador), "Inspector HyS", lugar].filter(Boolean).join(" · ").slice(0, 250);

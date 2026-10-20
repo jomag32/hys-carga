@@ -12,7 +12,7 @@ const ITEMS = [
     x_bloque: "Chequeo", x_critico: [4, 5, 6, 7, 9].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![4, 5, 6, 7, 9].includes(i + 1), x_version: "v1" })),
   ...Array.from({ length: 10 }, (_, i) => ({ id: i + 11, x_codigo: `F08L-${String(i + 1).padStart(2, "0")}`, x_name: `Control logística ${i + 1}`, x_formulario: "F08_LOG",
     x_bloque: "Chequeo", x_critico: [6, 7, 8].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![6, 7].includes(i + 1), x_version: "v1" }))];
-const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado" }, { id: 18, name: "Gerencia Ejemplo", job_title: "Gerencia" }];
+const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado" }, { id: 16, name: "Otra Persona Ejemplo", job_title: "Operario" }]; // 18 no se puede leer (regla de RR. HH.)
 const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_rol: "inspector", x_active: true },
   { id: 3, x_name: "Encargado Logística Ejemplo", x_legajo: "0003", x_rol: "encargado", x_sector: "logistica", x_active: true },
   { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true }];
@@ -202,7 +202,8 @@ test("catálogo: turnos con hora, controles por sector, personas", async () => {
   assert.equal(c.controles.F08_DEP.length, 10);
   assert.equal(c.controles.F08_DEP[3].critico, true);
   assert.equal(c.controles.F08_DEP[3].admite_na, false);
-  assert.equal(c.personas.deposito.length, 2);
+  assert.equal(c.personas.deposito.length, 3);
+  assert.ok(c.personas.deposito.some((p) => p.id === 18)); // autoriza por defecto del turno, aunque no se lea en hr.employee
   assert.equal(c.min_justificacion_na, 10);
   const d = await api.delDia("deposito", "2026-10-20");
   assert.deepEqual(d, []);

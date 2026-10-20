@@ -46,10 +46,11 @@ export async function escribirRegistro(modelo, ids, valores, { idempotencyKey } 
 // Con datos de ejemplo (?dev=1 o localhost) son inspectores de EJEMPLO y el envío es siempre simulado.
 export const ROL_INGRESO = "Inspector HyS";
 /** [{id, nombre, legajo, tipo, empresa, rol, fuente}] — id = x_hys_inspector. Todos habilitados en todas las obras. */
+export const ROL_ENCARGADO = "Encargado de sector";
 export async function leerUsuariosDeIngreso() {
-  const lista = await leerInspectores();
+  const lista = await leerTodosLosInspectores();
   return lista.map((e) => ({ id: e.id, nombre: e.nombre, legajo: e.legajo ?? null, tipo: e.tipo || "interno", empresa: e.empresa || null,
-    rol: ROL_INGRESO, fuente: "x_hys_inspector" }));
+    rol: e.rol === "encargado" ? ROL_ENCARGADO : ROL_INGRESO, rol_hys: e.rol || "inspector", sector: e.sector || null, fuente: "x_hys_inspector" }));
 }
 
 // ---------------------------------------------------------------- Contraseña por inspector (Jorge 18/10/2026 19:34)
@@ -159,8 +160,12 @@ function leerCopia(clave) {
 // x_hys_inspector, «HyS > Inspectores»; NO empleados ni usuarios, decisión de Jorge 18/10/2026) y
 // GET /api/v1/hitos?ot=<id> (Odoo vía MIA, solo lectura); "ejemplo" → datos-mock.js.
 let inspectoresCache = null;
-/** [{id, nombre, legajo, tipo, empresa}] (id = x_hys_inspector). */
+/** Inspectores HyS para elegir en F02/F03/F04 (sin los encargados de sector, que solo cargan F08). */
 export async function leerInspectores() {
+  return (await leerTodosLosInspectores()).filter((e) => e.rol !== "encargado");
+}
+/** [{id, nombre, legajo, tipo, empresa, rol, sector}] (id = x_hys_inspector), incluye encargados (para el ingreso). */
+async function leerTodosLosInspectores() {
   if (inspectoresCache) return inspectoresCache;
   const lista = await conCopia("inspectores", async () => CONFIG.OBRAS_FUENTE === "backend"
     ? leerDelBackend("/inspectores")

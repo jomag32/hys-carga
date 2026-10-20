@@ -190,6 +190,14 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
           : [["active", "=", true], ["department_id", "child_of", deps]];
       const regs = await ej("hr.employee", "search_read", [dom], { fields: ["id", "name", "job_title"], order: "name" });
       personas[s] = regs.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || null }));
+      // Encargado / autoriza por defecto del turno que la cuenta de servicio no puede leer en hr.employee
+      // (reglas de acceso de RR. HH.): se agregan con el nombre que trae el turno, para poder elegirlos.
+      for (const t of turnos.filter((x) => x.x_sector === s)) {
+        for (const [m2o, puesto] of [[t.x_encargado_id, "Encargado del turno"], [t.x_autoriza_id, "Autoriza el turno"]]) {
+          const id = m2oId(m2o);
+          if (id && !personas[s].some((p) => p.id === id)) personas[s].push({ id, nombre: Array.isArray(m2o) ? String(m2o[1] || id) : String(id), puesto });
+        }
+      }
     }
     return { turnos, items, personas, minJustif: cfg[0]?.x_ats_min_justif || 10, horasTardia: cfg[0]?.x_ats_horas_tardia || 24, filtrado: !!departamentos };
   }

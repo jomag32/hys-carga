@@ -45,9 +45,10 @@ export function crearCatalogos(cliente) {
   async function leerInspectores() {
     if (inspectores.lista && Date.now() < inspectores.hasta) return inspectores;
     const regs = await cliente().ejecutar("x_hys_inspector", "search_read", [[["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa"], order: "x_name, id" });
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], order: "x_name, id" });
     const lista = regs.map((r) => ({ id: r.id, nombre: String(r.x_name || "").trim(), legajo: r.x_legajo ? String(r.x_legajo).trim() : null,
-      tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null }));
+      tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null,
+      rol: r.x_rol || "inspector", sector: r.x_rol === "encargado" ? r.x_sector || null : null }));
     lista.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
     inspectores = { lista, hasta: Date.now() + CACHE_MS, fuente: "x_hys_inspector" };
     return inspectores;
@@ -56,7 +57,7 @@ export function crearCatalogos(cliente) {
   /** Inspector activo por id (para el envío); null si no existe o está archivado. Sin caché. */
   async function buscarInspector(id) {
     const r = await cliente().ejecutar("x_hys_inspector", "search_read", [[["id", "=", id], ["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa"], limit: 1 });
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], limit: 1 });
     return r[0] || null;
   }
 
