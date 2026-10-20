@@ -128,6 +128,17 @@ Payload (lo que se ve en `?dev=1`; imágenes en base64 sin prefijo, fechas en UT
 
 `x_linea_ids` usa comandos `[0, 0, {...}]` (= `(0, 0, {...})` / `Command.create`): cabecera y líneas en **una sola llamada**, todo o nada. `contexto` no va al `create`: son datos que el backend puede usar (modalidad, clase, desvíos) mientras no se confirme que esos campos existen en el modelo creado.
 
+## F08 · ATS de turno sectorial → `x_hys_ats` (20/10/2026)
+
+Piloto en **Depósito Central** y **Logística y Mantenimiento**. Decisiones D-01..D-16 del plan F08 aceptadas el 20/10/2026.
+
+- `GET /api/v1/ats/catalogo` (sesión): sectores, turnos de `x_hys_turno` («Jornada», lunes a viernes 07:00), los 10 controles de cada sector (`x_hys_item_plantilla`, F08_DEP / F08_LOG, con ★ y si admite N/A), las personas de cada sector (`hr.employee`, solo lectura) y el mínimo de letras para justificar un N/A. Caché de 5 min.
+- `GET /api/v1/ats?sector=&fecha=` (sesión): ATS ya cargados ese día, para avisar «ya hay ATS para este turno».
+- `POST /api/v1/ats` (sesión, mismo formato que `/fichas`): valida y crea el ATS con sus controles y tareas. 201 nuevo, 200 repetido (misma `idempotency_key`), 409 si el turno ya tiene un ATS válido (si el anterior quedó «No autorizado», se permite y queda enlazado en `x_ats_anterior_id`), 403 si un encargado carga otro sector, 422 con la lista de errores.
+- Validaciones: todos los controles del sector, una sola vez; «No» con gravedad y foto; N/A con justificación y nunca en los ★ que no lo admiten; ★ en «No» ⇒ no puede ser «Autorizado»; «Autorizado tras corrección» pide qué se corrigió; tareas si hay trabajo fuera de rutina; dotación ≥ 1; charla previa; firma del encargado y de quien autoriza (o autorización a distancia); turno del sector y que trabaje ese día.
+- El backend calcula: `x_inicio_turno`, `x_antes_de_turno`, `x_carga_tardia`, `x_identico_anterior`, `x_codigo_ats`, quién cargó (de la sesión) y copia texto y ★ de cada control desde la plantilla. El número (ATS-AAAA-NNNNN) lo pone Odoo.
+- Variable opcional `ATS_DEPARTAMENTOS` = JSON `{"deposito":[ids de hr.department],"logistica":[…]}` para acotar las personas de cada sector. Sin ella se listan todos los empleados activos.
+
 ## App instalable (PWA)
 
 - `manifest.webmanifest` («HyS · Tecnología ARME», corto «HyS ARME», pantalla completa, `start_url`/`scope` = `./`, color `#163f8b`, `es-AR`), íconos en `iconos/` (escudo naranja, 192/512, *maskable* y `apple-touch-icon` 180) y metas de iOS en `index.html`.

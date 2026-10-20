@@ -293,10 +293,29 @@ export function numeroOt(nombre = "") {
   return m ? m[1] : null;
 }
 
-/** Turnos (x_turno de x_hys_ats; a definir por la empresa, §7.4 #7). */
+/** Turnos de ATS (x_hys_turno), del catálogo F08. */
 export async function leerTurnos() {
-  if (CONFIG.MOCK) return clonar(M.TURNOS);
-  return llamar("/turnos");
+  return (await leerCatalogoAts()).turnos;
+}
+
+/** Catálogo F08 (GET /api/v1/ats/catalogo, con sesión): sectores, turnos, controles por sector y personas. */
+export async function leerCatalogoAts() {
+  if (CONFIG.MOCK) {
+    const ctl = (f) => M.ITEMS_PLANTILLA.filter((i) => i.x_formulario === f && i.x_active !== false).map((i) => ({
+      codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, critico: !!i.x_critico,
+      admite_na: !M.ATS_SIN_NA.includes(i.x_codigo), secuencia: i.x_secuencia, version: i.x_version }));
+    const pers = M.EMPLEADOS.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || "" }));
+    return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"]], turnos: M.TURNOS,
+      controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10 });
+  }
+  return llamar("/ats/catalogo");
+}
+
+/** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
+export async function leerAtsDelDia(sector, fecha) {
+  if (CONFIG.MOCK) return [];
+  try { return await llamar(`/ats?sector=${encodeURIComponent(sector)}&fecha=${encodeURIComponent(fecha)}`); }
+  catch (e) { if (e.estado === 0) return []; throw e; }
 }
 
 /** Error con código HTTP, para que la cola distinga "sin señal" de "rechazado". */
@@ -414,7 +433,7 @@ const simulado = {
     const ya = lista.find((x) => x.idempotency_key === clave);
     if (ya) return { ...ya.respuesta, repetido: true }; // mismo envío: misma respuesta (200), sin duplicar
     const n = lista.filter((x) => x.endpoint === `POST /api/v1${endpoint}`).length + 1;
-    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
+    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : endpoint === "/ats" ? `ATS-SIM-${String(n).padStart(5, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
     lista.unshift({ idempotency_key: clave, endpoint: `POST /api/v1${endpoint}`, recibido: new Date().toISOString(),
       respuesta, cuerpo: recortarBase64(cuerpo) });
     try { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 30))); }

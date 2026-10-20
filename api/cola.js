@@ -26,7 +26,7 @@ const CLAVE_LS = "hys_cola";
 export const TEXTO_PRUEBA = "Guardado solo en el celular (modo prueba) — no llega a Odoo";
 export const ETIQUETA_PRUEBA = "Modo prueba · no llega a Odoo";
 /** ¿Este formulario llega a Odoo de verdad? F01 y F02 con el backend real. */
-export const formularioConectado = (cod) => (cod === "F01" || cod === "F02") && CONFIG.MODO_ENVIO === "backend";
+export const formularioConectado = (cod) => ["F01", "F02", "F08"].includes(cod) && CONFIG.MODO_ENVIO === "backend";
 /** ¿Este envío es de modo prueba? «crear»/«escribir» van siempre al guardado local (no hay endpoint en el
  *  backend), también los guardados con versiones anteriores que no traían la marca simulado. Solo es real
  *  un «enviar» al backend que respondió sin simulado. */

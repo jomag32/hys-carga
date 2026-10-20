@@ -16,6 +16,9 @@
 //   GET  /api/v1/obras?para=f01   → (sesión) igual que /obras pero con obras NO INICIADAS además de EN PROGRESO / PAUSADO
 //   GET  /api/v1/riesgos          → (sesión) riesgos activos de x_hys_riesgo [{id, codigo, nombre, gravedad}] para el F01
 //   POST /api/v1/fichas           → (sesión) create de x_hys_ficha (BORRADOR) + hitos; 201 nueva, 200 repetida, 409 si la OT ya tiene Ficha
+//   GET  /api/v1/ats/catalogo     → (sesión) F08: sectores, turnos, controles por sector y personas del sector (caché 5 min)
+//   GET  /api/v1/ats?sector=&fecha= → (sesión) ATS de ese sector y día (aviso «ya hay ATS para este turno»)
+//   POST /api/v1/ats              → (sesión) create de x_hys_ats + controles + tareas; 201 nuevo, 200 repetido, 409 si el turno ya tiene ATS válido
 
 import http from "node:http";
 import { crearCliente, ErrorOdoo } from "./odoo.js";
@@ -24,6 +27,7 @@ import { crearCatalogos } from "./catalogos.js";
 import { crearInspecciones, ErrorEntrada } from "./inspecciones.js";
 import { crearIngreso, ErrorIngreso } from "./ingreso.js";
 import { crearAltaFichas, ETAPAS_FICHA } from "./fichas-alta.js";
+import { crearAts } from "./ats.js";
 
 const PORT = Number(process.env.PORT) || 10000;
 const ETAPAS = (process.env.OBRAS_ETAPAS || "EN PROGRESO,PAUSADO").split(",").map((s) => s.trim()).filter(Boolean);
@@ -41,6 +45,7 @@ const cliente = () => (odoo ??= crearCliente({
 const catalogos = crearCatalogos(cliente);
 const inspecciones = crearInspecciones(cliente, catalogos);
 const altaFichas = crearAltaFichas(cliente, catalogos);
+const ats = crearAts(cliente, { catalogos });
 // Firma de sesiones: HYS_SESSION_SECRET si está; si no, la credencial de servicio (estable entre reinicios).
 const ingreso = crearIngreso({ catalogos, secreto: process.env.HYS_SESSION_SECRET || process.env.ODOO_PASSWORD || null });
 
@@ -148,7 +153,7 @@ const servidor = http.createServer(async (req, res) => {
 
     // Catálogos con datos de obras (nombres de proyectos y clientes): solo con sesión de inspector.
     // /api/v1/inspectores queda abierto porque es la lista para ingresar.
-    const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos", "/api/v1/riesgos"];
+    const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos", "/api/v1/riesgos", "/api/v1/ats", "/api/v1/ats/catalogo"];
     if (req.method === "GET" && SESION_GET.includes(ruta) && !sesionDe(req)) return sinSesion(res);
 
     if (ruta === "/api/v1/obras" && req.method === "GET") {
@@ -179,6 +184,29 @@ const servidor = http.createServer(async (req, res) => {
         if (e instanceof ErrorEntrada && e.estado === 409) log("fichas: rechazada, la OT ya tiene ficha");
         if (e instanceof ErrorEntrada && e.estado === 413) req.resume();
         return responderError(res, e, "fichas");
+      }
+    }
+    if (ruta === "/api/v1/ats/catalogo" && req.method === "GET") {
+      try { return json(res, 200, await ats.catalogo()); }
+      catch (e) { return responderError(res, e, "ats-catalogo"); }
+    }
+    if (ruta === "/api/v1/ats" && req.method === "GET") {
+      const q = new URL(req.url, "http://x").searchParams;
+      try { return json(res, 200, await ats.delDia(q.get("sector"), q.get("fecha"))); }
+      catch (e) { return responderError(res, e, "ats"); }
+    }
+    if (ruta === "/api/v1/ats" && req.method === "POST") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
+        const cuerpo = await leerCuerpo(req);
+        const r = await ats.recibir(cuerpo, { sesion });
+        log(`ats: ${r.estado === 201 ? "creado" : "repetido"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) {
+        if (e instanceof ErrorEntrada && e.estado === 409) log("ats: rechazado, el turno ya tiene ATS");
+        if (e instanceof ErrorEntrada && e.estado === 413) req.resume();
+        return responderError(res, e, "ats");
       }
     }
     if (ruta === "/api/v1/inspectores" && req.method === "GET") {
@@ -227,7 +255,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "POST /api/v1/fichas"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

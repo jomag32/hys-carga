@@ -151,7 +151,7 @@ export const EMPLEADOS = [
   {id: 18, name: "Gerencia de Stock Ejemplo", job_title: "Gerencia de Stock", x_mock_roles: ["autoriza"]},
   {id: 19, name: "Gerencia de Logística Ejemplo", job_title: "Gerencia de Logística", x_mock_roles: ["autoriza", "encargado"]},
   {id: 20, name: "Gerente UGEOP Ejemplo", job_title: "Gerente de UGEOP", x_mock_roles: []},
-  {id: 21, name: "Jorge Garay", job_title: "COO", x_mock_roles: []}
+  {id: 21, name: "Dirección Ejemplo", job_title: "Dirección", x_mock_roles: []}
 ];
 
 // x_hys_ficha · Fichas ya aprobadas (la OT 9104 no tiene: solo entran los 6 ítems generales en F02).
@@ -171,12 +171,14 @@ export const DESVIOS = [
   {id: 4, x_name: "D-00004", x_origen_formulario: "F02", x_ambito: "obra", x_ot_id: [101, "OT 9101 - Galpón Ejemplo Norte"], x_descripcion: "Acopio de chapas sobre la vía de circulación", x_criticidad: "menor", x_estado: "abierto", x_fecha_deteccion: "2026-10-20T09:00:00-03:00", x_responsable_id: [201, "Director de Obra Ejemplo 1"]}
 ];
 
-// x_turno en x_hys_ats es «selection a definir» (diseño §2.13 y pregunta abierta §7.4 #7).
-// Estos turnos son un supuesto para el mock: cantidad y horario los define la empresa.
+// x_hys_turno (F08). En Odoo: «Jornada» lunes a viernes 07:00 en los dos sectores (decisión D-03).
+// Mismo formato que GET /api/v1/ats/catalogo → turnos. Datos de EJEMPLO.
 export const TURNOS = [
-  {codigo: "manana", nombre: "Mañana", inicio: "07:00"},
-  {codigo: "tarde", nombre: "Tarde", inicio: "14:00"}
+  {id: 1, codigo: "jornada", nombre: "Jornada", sector: "deposito", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: 17, autoriza_id: 18, codigo_ats: "ATS-DEP-001"},
+  {id: 2, codigo: "jornada", nombre: "Jornada", sector: "logistica", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: null, autoriza_id: 19, codigo_ats: "ATS-LOG-MANT-001"}
 ];
+// ★ que NO admiten N/A (decisión D-05). El resto admite N/A con justificación.
+export const ATS_SIN_NA = ["F08D-04", "F08D-05", "F08D-06", "F08D-07", "F08D-09", "F08L-06", "F08L-07"];
 
 // ---- Lugar sin OT (Fábrica, Oficina, Depósito Central, Logística y Mantenimiento) ----
 export const LUGAR_PLANTA = {id: "planta", name: "Planta · Fábrica, Oficina, Depósito y Logística"};

@@ -20,7 +20,7 @@ export const SECTORES_FABRICA = [
 ];
 
 /** Dibuja los ítems. d.respuestas[item.id] = {respuesta, criticidad, foto, comentario, sector, justificacion_na} */
-export function checklist(items, d, { conSector = false, naJustificado = false, comentarioSiempre = false } = {}) {
+export function checklist(items, d, { conSector = false, naJustificado = false, comentarioSiempre = false, medida = false } = {}) {
   d.respuestas = d.respuestas || {};
   return h("div", { class: "checklist" }, items.map((it) => {
     const r = (d.respuestas[it.id] = d.respuestas[it.id] || {});
@@ -32,6 +32,7 @@ export function checklist(items, d, { conSector = false, naJustificado = false, 
           conSector && campoSelect(r, "sector", "Sector", SECTORES_FABRICA, { requerido: true }),
           campoOpciones(r, "criticidad", "Gravedad", GRAVEDADES, { requerido: true }),
           campoFoto(r, "foto", "Foto del problema", { requerido: true }),
+          medida && campoArea(r, "medida", "Medida correctiva / qué se hizo", { filas: 2 }),
           campoArea(r, "comentario", "Comentario (opcional)", { filas: 2 })].filter(Boolean));
       } else if (r.respuesta === "na" && naJustificado) {
         detalle.replaceChildren(campoArea(r, "justificacion_na", "¿Por qué no aplica?", { requerido: true, filas: 2 }));
@@ -44,14 +45,14 @@ export function checklist(items, d, { conSector = false, naJustificado = false, 
     pintarDetalle();
     return h("div", { class: `item ${it.x_critico ? "critico" : ""}`, "data-codigo": it.x_codigo || "" },
       h("p", { class: "item-texto" }, it.x_critico ? "★ " : "", it.x_name),
-      campoOpciones(r, "respuesta", null, [["si", "Sí", { clase: "verde" }], ["no", "No", { clase: "rojo" }], ["na", "N/A"]],
+      campoOpciones(r, "respuesta", null, [["si", "Sí", { clase: "verde" }], ["no", "No", { clase: "rojo" }], ["na", "N/A", { deshabilitado: it.admite_na === false }]],
         { columnas: 3, alCambiar: pintarDetalle }),
       detalle);
   }));
 }
 
 /** Devuelve el primer error o null. */
-export function validarChecklist(items, d, { conSector = false, naJustificado = false } = {}) {
+export function validarChecklist(items, d, { conSector = false, naJustificado = false, minJustif = 1 } = {}) {
   for (const it of items) {
     const r = d.respuestas?.[it.id] || {};
     const corto = it.x_name.length > 50 ? it.x_name.slice(0, 50) + "…" : it.x_name;
@@ -61,7 +62,8 @@ export function validarChecklist(items, d, { conSector = false, naJustificado = 
       if (!r.criticidad) return `Elegí la gravedad en «${corto}»`;
       if (!r.foto) return `La foto es obligatoria en «${corto}» (sin foto no se crea el desvío)`;
     }
-    if (r.respuesta === "na" && naJustificado && !r.justificacion_na?.trim()) return `Justificá el N/A en «${corto}»`;
+    if (r.respuesta === "na" && it.admite_na === false) return `«${corto}» es crítico y no admite N/A`;
+    if (r.respuesta === "na" && naJustificado && (r.justificacion_na?.trim().length || 0) < minJustif) return `Justificá el N/A en «${corto}»${minJustif > 1 ? ` (mínimo ${minJustif} letras)` : ""}`;
   }
   return null;
 }
@@ -80,12 +82,14 @@ export function armarLineasYDesvios(items, d, { tipo = "inspeccion", origen, amb
     const base = tipo === "inspeccion"
       ? { x_name: it.x_name, x_bloque: it.x_bloque, x_item_codigo: it.x_codigo, x_secuencia: it.x_secuencia, x_respuesta: r.respuesta,
         x_criticidad: false, x_foto: false, x_comentario: r.comentario?.trim() || false }
-      : { x_item_id: it.id, x_name: it.x_name, x_secuencia: it.x_secuencia, x_respuesta: r.respuesta,
-        x_critico: !!it.x_critico, x_justificacion_na: r.justificacion_na || false };
+      // F08 (x_hys_ats_linea): el ítem viaja por código; texto y ★ los copia el backend de la plantilla.
+      : { x_item_codigo: it.x_codigo, x_respuesta: r.respuesta, x_justificacion_na: r.justificacion_na?.trim() || false,
+        x_comentario: r.comentario?.trim() || false };
     if (r.respuesta === "no") {
       Object.assign(base, { x_criticidad: r.criticidad, x_foto: r.foto });
+      if (tipo === "ats") base.x_medida_correctiva = r.medida?.trim() || false;
       if (r.sector) base.x_sector = r.sector;
-      desvios.push([0, 0, {
+      if (tipo !== "ats") desvios.push([0, 0, {
         x_origen_formulario: origen, x_ambito: ambito, x_ot_id: otId || false, x_sector: r.sector || false,
         x_descripcion: it.x_name, x_criticidad: r.criticidad, x_accion_inmediata: ACCION_INMEDIATA[r.criticidad],
         x_foto_deteccion: r.foto, x_fecha_deteccion: fechaControl

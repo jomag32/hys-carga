@@ -1,70 +1,88 @@
-// HYS-F08 · ATS de turno sectorial → x_hys_ats (+ x_linea_ids, x_tarea_ids, x_desvio_ids).
-// Diseño §2.13, §3.8, §5.5 F08 y Anexo B. Piloto en Depósito Central y Logística y Mantenimiento.
-// 10 controles previos (★ = crítico). N/A con justificación. «No» → gravedad + foto → desvío.
-// Crítico en «No» ⇒ el resultado no puede ser «Autorizado».
+// HYS-F08 · ATS de turno sectorial → POST /api/v1/ats → x_hys_ats (+ x_linea_ids, x_tarea_ids).
+// Plan de implementación F08 (20/10/2026, decisiones D-01..D-16 aceptadas). Piloto en Depósito Central
+// y Logística y Mantenimiento. Turnos, controles y personas salen de GET /api/v1/ats/catalogo.
+// 10 controles por sector (★ = crítico). N/A con justificación (los ★ marcados no lo admiten).
+// «No» → gravedad + foto (+ medida correctiva). Crítico en «No» ⇒ el resultado no puede ser «Autorizado».
+// El desvío formal lo abre HyS desde Odoo (D-08): el formulario no crea x_hys_desvio.
 
 import { h } from "../componentes/util.js";
 import { campoOpciones, campoSelect, campoTexto, campoArea, campoFirma, aviso } from "../componentes/campos.js";
 import { selectorTurno } from "../componentes/selector-turno.js";
 import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } from "../componentes/checklist.js";
 import { camposControl, hoyIso } from "../componentes/campos-auto.js";
-import { leerRegistros } from "../api/odoo.js";
+import { leerCatalogoAts, leerAtsDelDia } from "../api/odoo.js";
+import { leerSesion } from "../componentes/sesion.js";
 
-const SECTORES = {
-  deposito: { nombre: "Depósito Central", plantilla: "F08_DEP", codigo: "ATS-DEP-001", encargado: 17, autoriza: 18 },
-  logistica: { nombre: "Logística y Mantenimiento", plantilla: "F08_LOG", codigo: "ATS-LOG-MANT-001", encargado: null, autoriza: 19 }
-};
+const PLANTILLA = { deposito: "F08_DEP", logistica: "F08_LOG" };
 const DETENCION = "No iniciar o suspender ante fugas, cargas inestables, equipos dañados, resguardos ausentes, falta de aislamiento de energía, tránsito sin control, derrames no controlados, incompatibilidades de almacenamiento o falta de controles críticos. Aislar, corregir y verificar antes de autorizar.";
 const RESULTADOS = [["autorizado", "Autorizado", { clase: "verde" }], ["autorizado_correccion", "Autorizado tras corrección", { clase: "naranja" }], ["no_autorizado", "No autorizado", { clase: "rojo" }]];
-const OPC = { naJustificado: true };
+const RES_TXT = Object.fromEntries(RESULTADOS.map(([v, t]) => [v, t]));
 
-const items = (d, ctx) => (d.sector ? ctx.items[SECTORES[d.sector].plantilla] : []);
+// Ítems del catálogo con la forma que usa el checklist (id = código del control).
+const items = (d, ctx) => (d.sector ? (ctx.cat.controles[PLANTILLA[d.sector]] || []).map((c) => ({
+  id: c.codigo, x_codigo: c.codigo, x_name: c.nombre, x_bloque: c.bloque, x_critico: c.critico, admite_na: c.admite_na, x_secuencia: c.secuencia })) : []);
 const mitad = (d, ctx, n) => { const it = items(d, ctx); const m = Math.ceil(it.length / 2); return n === 1 ? it.slice(0, m) : it.slice(m); };
 const criticoEnNo = (d, ctx) => items(d, ctx).some((it) => it.x_critico && d.respuestas?.[it.id]?.respuesta === "no");
+const opc = (ctx) => ({ naJustificado: true, medida: true, minJustif: ctx.cat.min_justificacion_na || 10 });
+const nombreSector = (ctx, s) => ctx.cat.sectores.find(([k]) => k === s)?.[1] || s;
+// ¿Ya hay un ATS válido para este turno? (uno «No autorizado» se puede rehacer: D-10)
+const bloqueante = (d) => (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado !== "no_autorizado");
+
+function buscarPrevios(d, ctx) {
+  if (!d.sector || !d.fecha) return;
+  const clave = `${d.sector}|${d.fecha}`;
+  if (d._previosDe === clave) return;
+  d._previosDe = clave; d.previos = [];
+  leerAtsDelDia(d.sector, d.fecha).then((r) => { if (d._previosDe === clave) { d.previos = r; ctx.refrescar(); } }).catch(() => {});
+}
 
 export default {
   codigo: "F08",
   titulo: "ATS de turno sectorial",
   async preparar(ctx) {
-    const [dep, log, emp] = await Promise.all([
-      leerRegistros("x_hys_item_plantilla", [["x_formulario", "=", "F08_DEP"]]),
-      leerRegistros("x_hys_item_plantilla", [["x_formulario", "=", "F08_LOG"]]),
-      leerRegistros("hr.employee", [], ["name", "job_title"])]);
-    ctx.items = { F08_DEP: dep, F08_LOG: log };
-    ctx.empleados = emp;
+    ctx.cat = await leerCatalogoAts();
   },
   inicial: () => ({ fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no" }),
   pasos: [
     {
       titulo: "Sector y turno",
-      dibujar: (d, ctx) => [
-        campoOpciones(d, "sector", "Sector", Object.entries(SECTORES).map(([k, s]) => [k, s.nombre]), {
-          columnas: 2, requerido: true,
-          alCambiar: (v) => { d.respuestas = {}; d.encargado_id = SECTORES[v].encargado; d.autoriza_id = SECTORES[v].autoriza; }
-        }),
-        campoTexto(d, "fecha", "Fecha del turno", { tipo: "date", requerido: true, alCambiar: () => ctx.refrescar() }),
-        selectorTurno(d, "turno")],
-      validar: (d) => (!d.sector ? "Elegí el sector." : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno." : null)
+      dibujar: (d, ctx) => {
+        buscarPrevios(d, ctx);
+        const ya = bloqueante(d);
+        const rehace = (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado === "no_autorizado");
+        const ponerResponsables = (t) => { d.encargado_id = t.encargado_id || d.encargado_id || null; d.autoriza_id = t.autoriza_id || d.autoriza_id || null; };
+        return [
+          campoOpciones(d, "sector", "Sector", ctx.cat.sectores, {
+            columnas: 2, requerido: true,
+            alCambiar: () => { d.respuestas = {}; d.turno = null; d.encargado_id = null; d.autoriza_id = null; ctx.refrescar(); }
+          }),
+          campoTexto(d, "fecha", "Fecha del turno", { tipo: "date", requerido: true, alCambiar: () => ctx.refrescar() }),
+          d.sector && selectorTurno(d, ctx.cat.turnos, "turno", { alCambiar: (t) => { ponerResponsables(t); ctx.refrescar(); } }),
+          ya && aviso(`Ya hay un ATS para este turno (${ya.name || "cargado"}). No se carga otro: si hay que corregirlo, avisá a HyS.`, "error"),
+          rehace && aviso(`El ATS anterior de este turno (${rehace.name}) quedó «No autorizado». Este lo reemplaza.`, "alerta")].filter(Boolean);
+      },
+      validar: (d) => (!d.sector ? "Elegí el sector." : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno."
+        : bloqueante(d) ? "Ya hay un ATS para este turno." : null)
     },
     {
       titulo: "Actividades y responsables",
       dibujar: (d, ctx) => {
-        const ops = ctx.empleados.map((e) => [e.id, `${e.name} · ${e.job_title}`]);
+        const ops = (ctx.cat.personas[d.sector] || []).map((e) => [e.id, e.puesto ? `${e.nombre} · ${e.puesto}` : e.nombre]);
         return [campoArea(d, "actividades", "Turno y actividades", { requerido: true, filas: 3 }),
-          campoSelect(d, "encargado_id", "Encargado", ops, { requerido: true, ayuda: d.sector === "logistica" ? "Encargado de Logística: a designar." : null }),
+          campoSelect(d, "encargado_id", "Encargado", ops, { requerido: true }),
           campoSelect(d, "autoriza_id", "Autoriza", ops, { requerido: true })];
       },
       validar: (d) => (!d.actividades?.trim() ? "Contá las actividades del turno." : !d.encargado_id ? "Elegí el encargado." : !d.autoriza_id ? "Elegí quién autoriza." : null)
     },
     {
       titulo: "Controles previos (1 de 2)",
-      dibujar: (d, ctx) => [aviso(DETENCION, "alerta"), checklist(mitad(d, ctx, 1), d, OPC)],
-      validar: (d, ctx) => validarChecklist(mitad(d, ctx, 1), d, OPC)
+      dibujar: (d, ctx) => [aviso(DETENCION, "alerta"), checklist(mitad(d, ctx, 1), d, opc(ctx))],
+      validar: (d, ctx) => validarChecklist(mitad(d, ctx, 1), d, opc(ctx))
     },
     {
       titulo: "Controles previos (2 de 2)",
-      dibujar: (d, ctx) => checklist(mitad(d, ctx, 2), d, OPC),
-      validar: (d, ctx) => validarChecklist(mitad(d, ctx, 2), d, OPC)
+      dibujar: (d, ctx) => checklist(mitad(d, ctx, 2), d, opc(ctx)),
+      validar: (d, ctx) => validarChecklist(mitad(d, ctx, 2), d, opc(ctx))
     },
     {
       titulo: "Tareas fuera de rutina",
@@ -86,43 +104,56 @@ export default {
       dibujar: (d, ctx) => {
         const crit = criticoEnNo(d, ctx);
         if (crit && d.resultado === "autorizado") d.resultado = null;
-        return [campoTexto(d, "dotacion", "Dotación presente", { tipo: "number", min: 1, requerido: true, ayuda: "Toma de conocimiento grupal." }),
+        return [campoTexto(d, "dotacion", "Dotación presente", { tipo: "number", min: 1, requerido: true }),
+          campoOpciones(d, "charla", "¿Se hizo la charla previa con toda la dotación?", [["si", "Sí", { clase: "verde" }], ["no", "No", { clase: "rojo" }]], { columnas: 2, requerido: true, alCambiar: () => ctx.refrescar() }),
           crit && aviso("Hay un control crítico en «No»: no se puede «Autorizado».", "error"),
-          campoOpciones(d, "resultado", "Resultado", RESULTADOS.map(([v, t, o]) => [v, t, { ...o, deshabilitado: crit && v === "autorizado" }]), { requerido: true })];
+          campoOpciones(d, "resultado", "Resultado", RESULTADOS.map(([v, t, o]) => [v, t, { ...o, deshabilitado: crit && v === "autorizado" }]), { requerido: true, alCambiar: () => ctx.refrescar() }),
+          d.resultado === "autorizado_correccion" && campoArea(d, "correccion", "¿Qué se corrigió y quién lo verificó?", { requerido: true, filas: 2 }),
+          campoArea(d, "observaciones", "Observaciones (opcional)", { filas: 2 })].filter(Boolean);
       },
-      validar: (d, ctx) => !(d.dotacion >= 1) ? "La dotación tiene que ser 1 o más." : !d.resultado ? "Elegí el resultado." :
-        criticoEnNo(d, ctx) && d.resultado === "autorizado" ? "Con un crítico en «No» no puede ser «Autorizado»." : null
+      validar: (d, ctx) => !(d.dotacion >= 1) ? "La dotación tiene que ser 1 o más." : d.charla !== "si" ? "Sin charla previa con toda la dotación no se puede cerrar el ATS." :
+        !d.resultado ? "Elegí el resultado." : criticoEnNo(d, ctx) && d.resultado === "autorizado" ? "Con un crítico en «No» no puede ser «Autorizado»." :
+          d.resultado === "autorizado_correccion" && !d.correccion?.trim() ? "Contá qué se corrigió y quién lo verificó." : null
     },
     {
       titulo: "Firmas",
-      dibujar: (d) => [campoFirma(d, "firma_encargado", "Firma del encargado", { requerido: true }), campoFirma(d, "firma_autoriza", "Firma de quien autoriza", { requerido: true })],
-      validar: (d) => (!d.firma_encargado ? "Falta la firma del encargado." : !d.firma_autoriza ? "Falta la firma de quien autoriza." : null)
+      dibujar: (d, ctx) => [campoFirma(d, "firma_encargado", "Firma del encargado", { requerido: true }),
+        campoOpciones(d, "remota", "¿Quien autoriza no está en el lugar (autorizó por teléfono)?", [["no", "No, firma acá"], ["si", "Sí, autorizó a distancia"]], { columnas: 2, alCambiar: () => ctx.refrescar() }),
+        d.remota !== "si" && campoFirma(d, "firma_autoriza", "Firma de quien autoriza", { requerido: true })].filter(Boolean),
+      validar: (d) => (!d.firma_encargado ? "Falta la firma del encargado." : d.remota !== "si" && !d.firma_autoriza ? "Falta la firma de quien autoriza." : null)
     }
   ],
   resumen: (d, ctx) => [
-    ["Sector", SECTORES[d.sector]?.nombre], ["Fecha", d.fecha], ["Turno", d.turno ? `${d.turno.nombre} · ${d.turno.inicio}` : ""],
+    ["Sector", nombreSector(ctx, d.sector)], ["Fecha", d.fecha], ["Turno", d.turno ? `${d.turno.nombre} · ${d.turno.inicio}` : ""],
     ["Actividades", d.actividades],
     ["Controles", resumenChecklist(items(d, ctx), d)],
     ["Fuera de rutina", d.fuera_rutina === "si" ? `Sí · ${d.tareas.filter((t) => t.paso).length} tarea(s)` : "No"],
-    ["Dotación", d.dotacion], ["Resultado", RESULTADOS.find(([v]) => v === d.resultado)?.[1]]],
+    ["Dotación", d.dotacion], ["Resultado", RES_TXT[d.resultado]],
+    ["Autorización", d.remota === "si" ? "A distancia" : "Firmada en el lugar"]],
   armar: (d, auto, ctx) => {
-    const ambito = d.sector; // en x_hys_desvio: "deposito" | "logistica"
-    const { lineas, desvios } = armarLineasYDesvios(items(d, ctx), d, { tipo: "ats", origen: "F08", ambito, fechaControl: auto.fecha_hora_control });
+    const { lineas } = armarLineasYDesvios(items(d, ctx), d, { tipo: "ats" });
+    const control = camposControl(auto);
+    delete control.x_cargado_por; delete control.x_idempotency_key; // los pone el backend (sesión y clave del cuerpo)
+    const yo = leerSesion().usuario;
+    const vals = {
+      x_sector: d.sector, x_turno_id: d.turno.id, x_fecha: d.fecha,
+      x_actividades: d.actividades, x_encargado_id: Number(d.encargado_id), x_autoriza_id: Number(d.autoriza_id),
+      x_linea_ids: lineas, x_fuera_rutina: d.fuera_rutina,
+      x_tarea_ids: d.fuera_rutina === "si" ? d.tareas.filter((t) => t.paso?.trim()).map((t) => [0, 0, {
+        x_paso: t.paso.trim(), x_riesgo: t.riesgo?.trim() || false, x_control: t.control?.trim() || false, x_responsable: t.responsable?.trim() || false }]) : [],
+      x_dotacion: Number(d.dotacion), x_charla_previa: d.charla === "si", x_resultado: d.resultado,
+      x_correccion: d.resultado === "autorizado_correccion" ? d.correccion.trim() : false,
+      x_observaciones: d.observaciones?.trim() || false,
+      x_autorizacion_remota: d.remota === "si",
+      x_firma_encargado: d.firma_encargado, x_firma_autoriza: d.remota === "si" ? false : d.firma_autoriza,
+      ...control
+    };
     return {
-      operacion: "crear",
-      modelo: "x_hys_ats",
-      valores: {
-        x_sector: d.sector, x_codigo_ats: SECTORES[d.sector].codigo, x_fecha: d.fecha,
-        x_turno: d.turno.codigo, x_inicio_turno: d.inicio_turno,
-        x_actividades: d.actividades, x_encargado_id: d.encargado_id, x_autoriza_id: d.autoriza_id,
-        x_linea_ids: lineas, x_desvio_ids: desvios,
-        x_fuera_rutina: d.fuera_rutina,
-        x_tarea_ids: d.fuera_rutina === "si" ? d.tareas.filter((t) => t.paso?.trim()).map((t) => [0, 0, {
-          x_paso: t.paso, x_riesgo: t.riesgo || false, x_control: t.control || false, x_responsable: t.responsable || false }]) : [],
-        x_dotacion: Number(d.dotacion), x_resultado: d.resultado,
-        x_firma_encargado: d.firma_encargado, x_firma_autoriza: d.firma_autoriza,
-        ...camposControl(auto)
-      }
+      operacion: "enviar",
+      endpoint: "/ats",
+      auth: { inspector_id: yo?.id ?? null, token: yo?.token || null },
+      cuerpo: { formulario: "F08", idempotency_key: auto.idempotency_key, odoo: { model: "x_hys_ats", method: "create", vals },
+        contexto: { sector: nombreSector(ctx, d.sector), turno: d.turno.nombre, app: "hys-carga web" } }
     };
   }
 };
