@@ -314,7 +314,9 @@ export async function leerCatalogoAts() {
     return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"]], turnos: M.TURNOS,
       controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10 });
   }
-  return conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));
+  const cat = await conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));
+  // El backend manda sectores como {codigo, nombre, plantilla}; la vista usa pares [codigo, nombre].
+  return { ...cat, sectores: (cat.sectores || []).map((s) => (Array.isArray(s) ? s : [s.codigo, s.nombre])) };
 }
 
 /** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
