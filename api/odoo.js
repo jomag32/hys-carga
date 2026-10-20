@@ -304,8 +304,9 @@ export async function leerTurnos() {
 }
 
 /** Catálogo F08 (GET /api/v1/ats/catalogo, con sesión): sectores, turnos, controles por sector y personas. */
+// Producción (OBRAS_FUENTE "backend"): siempre el catálogo real, con copia para sin señal; nunca ejemplos.
 export async function leerCatalogoAts() {
-  if (CONFIG.MOCK) {
+  if (CONFIG.OBRAS_FUENTE !== "backend") {
     const ctl = (f) => M.ITEMS_PLANTILLA.filter((i) => i.x_formulario === f && i.x_active !== false).map((i) => ({
       codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, critico: !!i.x_critico,
       admite_na: !M.ATS_SIN_NA.includes(i.x_codigo), secuencia: i.x_secuencia, version: i.x_version }));
@@ -313,13 +314,13 @@ export async function leerCatalogoAts() {
     return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"]], turnos: M.TURNOS,
       controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10 });
   }
-  return llamar("/ats/catalogo");
+  return conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));
 }
 
 /** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
 export async function leerAtsDelDia(sector, fecha) {
-  if (CONFIG.MOCK) return [];
-  try { return await llamar(`/ats?sector=${encodeURIComponent(sector)}&fecha=${encodeURIComponent(fecha)}`); }
+  if (CONFIG.OBRAS_FUENTE !== "backend") return [];
+  try { return await leerDelBackend(`/ats?sector=${encodeURIComponent(sector)}&fecha=${encodeURIComponent(fecha)}`); }
   catch (e) { if (e.estado === 0) return []; throw e; }
 }
 

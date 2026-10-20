@@ -1,6 +1,6 @@
 import test from "node:test"; import assert from "node:assert/strict";
 test("lo que arma la vista F08 pasa las validaciones del backend", async () => {
-globalThis.localStorage={getItem:()=>null,setItem(){},removeItem(){}};globalThis.navigator={onLine:true};globalThis.window=globalThis;globalThis.location={search:"",hostname:"x"};
+globalThis.localStorage={getItem:()=>null,setItem(){},removeItem(){}};globalThis.navigator={onLine:true};globalThis.window=globalThis;globalThis.location={search:"?obras=ejemplo",hostname:"x"};
 const v=(await import("../vistas/f08-ats-turno.js")).default;
 const {leerCatalogoAts}=await import("../api/odoo.js");
 const {validarAts}=await import("../backend/ats.js");
