@@ -3,7 +3,7 @@
 // controla la página informa otra, la etiqueta muestra las dos («v X · sw Y»): señal de código mezclado.
 import { h } from "./util.js";
 
-export const VERSION = "2026-10-20.1";
+export const VERSION = "2026-10-20.2";
 
 /** <p id="version-app">v VERSION</p>; agrega «· sw Y» si el service worker activo dice otra versión. */
 export function etiquetaVersion() {
