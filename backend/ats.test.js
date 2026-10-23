@@ -47,7 +47,7 @@ function armar({ previos = [], ahora = AHORA } = {}) {
     if (m === "x_hys_ats" && kw.order === "id desc") r = [...r].sort((a, b) => b.id - a.id);
     return kw.limit ? r.slice(0, kw.limit) : r;
   };
-  const api = crearAts(() => ({ ejecutar }), { departamentos: null, ahora: () => ahora });
+  const api = crearAts(() => ({ ejecutar }), { departamentos: null, ahora: () => ahora, empresasIds: [1, 3] });
   return { api, db, llamadas };
 }
 
