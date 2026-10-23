@@ -18,6 +18,7 @@
 //   POST /api/v1/fichas           → (sesión) create de x_hys_ficha (BORRADOR) + hitos; 201 nueva, 200 repetida, 409 si la OT ya tiene Ficha
 //   GET  /api/v1/ats/catalogo     → (sesión) F08: sectores, turnos, controles por sector y personas del sector (caché 5 min)
 //   GET  /api/v1/ats?sector=&fecha= → (sesión) ATS de ese sector y día (aviso «ya hay ATS para este turno»)
+//   GET  /api/v1/ats/:id/pdf      → (sesión) PDF imprimible del ATS (reporte de Odoo); encargado solo su sector
 //   POST /api/v1/ats              → (sesión) create de x_hys_ats + controles + tareas; 201 nuevo, 200 repetido, 409 si el turno ya tiene ATS válido
 
 import http from "node:http";
@@ -195,6 +196,17 @@ const servidor = http.createServer(async (req, res) => {
       try { return json(res, 200, await ats.delDia(q.get("sector"), q.get("fecha"))); }
       catch (e) { return responderError(res, e, "ats"); }
     }
+    const mPdf = ruta.match(/^\/api\/v1\/ats\/(\d+)\/pdf$/);
+    if (mPdf && req.method === "GET") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) return sinSesion(res);
+        const { pdf, nombre } = await ats.pdf(Number(mPdf[1]), { sesion });
+        log(`ats-pdf: id ${mPdf[1]} (${pdf.length} bytes)`);
+        res.writeHead(200, { "Content-Type": "application/pdf", "Content-Length": pdf.length, "Content-Disposition": `attachment; filename="${nombre}"`, "Cache-Control": "no-store" });
+        return res.end(pdf);
+      } catch (e) { return responderError(res, e, "ats-pdf"); }
+    }
     if (ruta === "/api/v1/ats" && req.method === "POST") {
       try {
         const sesion = sesionDe(req);
@@ -255,7 +267,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

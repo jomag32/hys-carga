@@ -326,6 +326,27 @@ export async function leerAtsDelDia(sector, fecha) {
   catch (e) { if (e.estado === 0) return []; throw e; }
 }
 
+/** PDF imprimible de un ATS ya enviado (GET /api/v1/ats/:id/pdf, con sesión): lo baja al celular.
+ *  En papel y firmado es el ATS que vale legalmente. */
+export async function descargarPdfAts(id, nombre = "") {
+  if (CONFIG.OBRAS_FUENTE !== "backend") throw new ErrorApi("El PDF solo está disponible con el servidor real", 0);
+  const token = leerSesion().usuario?.token;
+  let r;
+  try {
+    r = await fetch(`${CONFIG.API_V1}/ats/${encodeURIComponent(id)}/pdf`, { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: AbortSignal.timeout?.(CONFIG.OBRAS_TIMEOUT_MS) });
+  } catch (e) {
+    throw new ErrorApi(e?.name === "TimeoutError" ? "El servidor tardó demasiado en responder" : "Sin conexión con el servidor", 0);
+  }
+  if (!r.ok) { const d = await r.json().catch(() => null); throw new ErrorApi(d?.error || `El servidor respondió con error ${r.status}`, r.status); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${String(nombre || `ATS-${id}`).replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 /** Error con código HTTP, para que la cola distinga "sin señal" de "rechazado". */
 export class ErrorApi extends Error {
   constructor(mensaje, estado, detalle) { super(mensaje); this.estado = estado; this.detalle = detalle; }

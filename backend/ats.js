@@ -168,7 +168,7 @@ export function puedeCargar(insp, sector) {
   return true; // inspector HyS (x_rol vacío = inspector, registros anteriores)
 }
 
-export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now() } = {}) {
+export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf() } = {}) {
   let cat = null, catHasta = 0, catEnCurso = null;
   const porClave = new Map(), enCurso = new Map();
   let cola = Promise.resolve();
@@ -292,7 +292,33 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     return p;
   }
 
-  return { catalogo, delDia, recibir, olvidar: () => { cat = null; } };
+  /** PDF imprimible del ATS (reporte QWeb de Odoo). Mismo permiso que cargar: encargado solo su sector, inspector HyS cualquiera.
+   *  Odoo no abre sesión web con API key, así que /report/pdf no sirve: se ejecuta por RPC la acción de servidor
+   *  «HyS · PDF del ATS (backend)» (ODOO_ATS_PDF_ACCION_ID), que devuelve el PDF en base64. */
+  async function pdf(id, { sesion = null } = {}) {
+    const idCargador = sesion?.inspector_id;
+    if (!Number.isInteger(idCargador)) throw new ErrorEntrada(401, "Tu sesión venció o cambió tu contraseña: tocá «Salir» y volvé a ingresar con tu contraseña.");
+    if (!Number.isInteger(id) || id <= 0) throw new ErrorEntrada(400, "Número de ATS inválido");
+    if (!accionPdf) throw new ErrorEntrada(503, "La descarga del PDF todavía no está habilitada. Avisá a HyS.");
+    const a = (await ej("x_hys_ats", "search_read", [[["id", "=", id]]], { fields: ["id", "x_name", "x_sector"], limit: 1, context: { active_test: false } }))[0];
+    if (!a) throw new ErrorEntrada(404, "No se encontró ese ATS");
+    const cargador = await leerInspector(idCargador);
+    if (!cargador) throw new ErrorEntrada(403, "Tu usuario ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
+    if (!puedeCargar(cargador, a.x_sector)) throw new ErrorEntrada(403, "Tu usuario es encargado de otro sector: no podés ver el PDF de este ATS.");
+    const r = await ej("ir.actions.server", "run", [[accionPdf]], { context: { active_model: "x_hys_ats", active_id: id, active_ids: [id] } });
+    const buf = typeof r?.hys_pdf_b64 === "string" ? Buffer.from(r.hys_pdf_b64, "base64") : null;
+    if (!buf || buf.subarray(0, 5).toString("latin1") !== "%PDF-") throw new ErrorOdoo("Odoo no devolvió un PDF");
+    const nombre = `${String(a.x_name || `ATS-${id}`).replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
+    return { pdf: buf, nombre };
+  }
+
+  return { catalogo, delDia, recibir, pdf, olvidar: () => { cat = null; } };
+}
+
+/** ODOO_ATS_PDF_ACCION_ID = id de la acción de servidor «HyS · PDF del ATS (backend)» en Odoo. Sin ella, el PDF responde 503. */
+export function leerAccionPdf(env = process.env) {
+  const n = Number(env.ODOO_ATS_PDF_ACCION_ID);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** ATS_DEPARTAMENTOS = JSON {"deposito":[ids de hr.department],"logistica":[…]} para acotar las personas de cada sector. */

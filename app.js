@@ -13,6 +13,7 @@ import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
 import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
 import { etiquetaVersion } from "./componentes/version.js";
+import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 /** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
@@ -159,6 +160,7 @@ function vistaEnvios() {
         h("b", {}, `HYS-${e.formulario} · ${e.titulo}`), envioEnPrueba(e) ? [" ", h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA)] : "", h("br"),
         h("span", { class: "estado-envio" }, estado(e), e.estado === "enviado" ? ` (${e.respuesta?.name || ""})` : "", e.estado === "rechazado" ? `: ${e.error}` : ""),
         e.estado === "pendiente" && e.error ? h("small", {}, ` · último intento: ${e.error}`) : "",
+        tienePdfAts(e) ? [h("br"), botonPdfAts(e, { clase: "btn chico" })] : "",
         h("br"), h("small", {}, mostrarFechaHora(e.creado))))) : h("p", { class: "ayuda" }, "No hay envíos todavía."),
       MODO_DEV ? panelDev(pintar) : "");
   };

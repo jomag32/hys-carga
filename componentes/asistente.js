@@ -22,6 +22,7 @@ import { h } from "./util.js";
 import { aviso } from "./campos.js";
 import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
+import { botonPdfAts } from "./pdf-ats.js";
 import { encolar, procesarCola, buscarEnvio, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "../api/cola.js";
 
 export async function montarAsistente(cont, def) {
@@ -181,7 +182,8 @@ export async function montarAsistente(cont, def) {
       ? (prueba
         ? h("div", { class: "resultado prueba", id: "resultado" }, h("p", { class: "grande" }, `💾 ${TEXTO_PRUEBA}`),
           h("p", {}, `${env.respuesta?.name || ""}`), h("p", { class: "ayuda" }, "Los datos quedaron en este celular. No cuentan como cargados en Odoo."))
-        : h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, "✅ Enviado a Odoo"), h("p", {}, `${env.respuesta.name}`)))
+        : h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, "✅ Enviado a Odoo"), h("p", {}, `${env.respuesta.name}`),
+          env.formulario === "F08" ? h("p", {}, botonPdfAts(env, { clase: "btn primario" })) : ""))
       : env?.estado === "rechazado"
         ? h("div", { class: "resultado error", id: "resultado" }, h("p", { class: "grande" }, "⛔ Rechazado"), h("p", {}, env.error))
         : h("div", { class: "resultado pendiente", id: "resultado" }, h("p", { class: "grande" }, "📱 Guardado en el celular"),
