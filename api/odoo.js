@@ -312,7 +312,8 @@ export async function leerCatalogoAts() {
       admite_na: !M.ATS_SIN_NA.includes(i.x_codigo), secuencia: i.x_secuencia, version: i.x_version }));
     const pers = M.EMPLEADOS.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || "" }));
     return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"]], turnos: M.TURNOS,
-      controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10 });
+      controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10,
+      empresas: [{ id: 1, nombre: "Empresa A (ejemplo)", corto: "Coop. El Sol" }, { id: 3, nombre: "Empresa B (ejemplo)", corto: "Cormet" }] });
   }
   const cat = await conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));
   // El backend manda sectores como {codigo, nombre, plantilla}; la vista usa pares [codigo, nombre].

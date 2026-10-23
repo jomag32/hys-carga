@@ -3,6 +3,8 @@
 // y Logística y Mantenimiento. Turnos, controles y personas salen de GET /api/v1/ats/catalogo.
 // 10 controles por sector (★ = crítico). N/A con justificación (los ★ marcados no lo admiten).
 // «No» → gravedad + foto (+ medida correctiva). Crítico en «No» ⇒ el resultado no puede ser «Autorizado».
+// Empresa (Coop. El Sol / Cormet): sale en el encabezado del PDF. Se recuerda la última elegida en el celular;
+// si no hay, se propone la empresa del encargado (si el catálogo la trae).
 // El desvío formal lo abre HyS desde Odoo (D-08): el formulario no crea x_hys_desvio.
 
 import { h } from "../componentes/util.js";
@@ -27,6 +29,27 @@ const opc = (ctx) => ({ naJustificado: true, medida: true, minJustif: ctx.cat.mi
 const nombreSector = (ctx, s) => ctx.cat.sectores.find(([k]) => k === s)?.[1] || s;
 // ¿Ya hay un ATS válido para este turno? (uno «No autorizado» se puede rehacer: D-10)
 const bloqueante = (d) => (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado !== "no_autorizado");
+
+const CLAVE_EMPRESA = "hys_f08_empresa";
+const empresas = (ctx) => ctx.cat.empresas || [];
+const leerUltimaEmpresa = () => { try { return Number(localStorage.getItem(CLAVE_EMPRESA)) || null; } catch { return null; } };
+const guardarEmpresa = (id) => { try { localStorage.setItem(CLAVE_EMPRESA, String(id)); } catch { /* sin almacenamiento */ } };
+const empresaDe = (ctx, sector, idPersona) => (ctx.cat.personas[sector] || []).find((p) => p.id === Number(idPersona))?.empresa_id || null;
+/** Propone empresa si no la eligió a mano: la del encargado, si es una de las opciones. */
+function proponerEmpresa(d, ctx) {
+  if (d._empresaManual || !empresas(ctx).length) return;
+  const e = empresaDe(ctx, d.sector, d.encargado_id);
+  if (e && empresas(ctx).some((x) => x.id === e)) d.empresa_id = e;
+}
+function selectorEmpresa(d, ctx) {
+  if (!empresas(ctx).length) return null; // backend sin la opción: vale la empresa del encargado en Odoo
+  if (!empresas(ctx).some((x) => x.id === d.empresa_id)) d.empresa_id = null;
+  if (!d.empresa_id) { const u = leerUltimaEmpresa(); if (empresas(ctx).some((x) => x.id === u)) d.empresa_id = u; else proponerEmpresa(d, ctx); }
+  return campoOpciones(d, "empresa_id", "Empresa", empresas(ctx).map((e) => [e.id, e.corto || e.nombre]), {
+    columnas: 2, requerido: true, ayuda: "Sale con su logo en el encabezado del PDF.",
+    alCambiar: (v) => { d._empresaManual = true; guardarEmpresa(v); }
+  });
+}
 
 // Encargado de sector: solo su sector (el backend lo vuelve a controlar: 403).
 const soloSector = () => { const u = leerSesion().usuario; return u?.rol_hys === "encargado" ? u.sector || "ninguno" : null; };
@@ -58,16 +81,17 @@ export default {
         const rehace = (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado === "no_autorizado");
         const ponerResponsables = (t) => { d.encargado_id = t.encargado_id || d.encargado_id || null; d.autoriza_id = t.autoriza_id || d.autoriza_id || null; };
         return [
+          selectorEmpresa(d, ctx),
           campoOpciones(d, "sector", "Sector", ctx.cat.sectores.filter(([k]) => !soloSector() || k === soloSector()), {
             columnas: 2, requerido: true,
             alCambiar: () => { d.respuestas = {}; d.turno = null; d.encargado_id = null; d.autoriza_id = null; ctx.refrescar(); }
           }),
           campoTexto(d, "fecha", "Fecha del turno", { tipo: "date", requerido: true, alCambiar: () => ctx.refrescar() }),
-          d.sector && selectorTurno(d, ctx.cat.turnos, "turno", { alCambiar: (t) => { ponerResponsables(t); ctx.refrescar(); } }),
+          d.sector && selectorTurno(d, ctx.cat.turnos, "turno", { alCambiar: (t) => { ponerResponsables(t); proponerEmpresa(d, ctx); ctx.refrescar(); } }),
           ya && aviso(`Ya hay un ATS para este turno (${ya.name || "cargado"}). No se carga otro: si hay que corregirlo, avisá a HyS.`, "error"),
           rehace && aviso(`El ATS anterior de este turno (${rehace.name}) quedó «No autorizado». Este lo reemplaza.`, "alerta")].filter(Boolean);
       },
-      validar: (d) => (!d.sector ? "Elegí el sector." : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno."
+      validar: (d, ctx) => (empresas(ctx).length && !d.empresa_id ? "Elegí la empresa." : !d.sector ? "Elegí el sector." : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno."
         : bloqueante(d) ? "Ya hay un ATS para este turno." : null)
     },
     {
@@ -75,7 +99,7 @@ export default {
       dibujar: (d, ctx) => {
         const ops = (ctx.cat.personas[d.sector] || []).map((e) => [e.id, e.puesto ? `${e.nombre} · ${e.puesto}` : e.nombre]);
         return [campoArea(d, "actividades", "Turno y actividades", { requerido: true, filas: 3 }),
-          campoSelect(d, "encargado_id", "Encargado", ops, { requerido: true }),
+          campoSelect(d, "encargado_id", "Encargado", ops, { requerido: true, alCambiar: () => proponerEmpresa(d, ctx) }),
           campoSelect(d, "autoriza_id", "Autoriza", ops, { requerido: true })];
       },
       validar: (d) => (!d.actividades?.trim() ? "Contá las actividades del turno." : !d.encargado_id ? "Elegí el encargado." : !d.autoriza_id ? "Elegí quién autoriza." : null)
@@ -130,6 +154,7 @@ export default {
     }
   ],
   resumen: (d, ctx) => [
+    ...(empresas(ctx).length ? [["Empresa", empresas(ctx).find((e) => e.id === d.empresa_id)?.nombre || ""]] : []),
     ["Sector", nombreSector(ctx, d.sector)], ["Fecha", d.fecha], ["Turno", d.turno ? `${d.turno.nombre} · ${d.turno.inicio}` : ""],
     ["Actividades", d.actividades],
     ["Controles", resumenChecklist(items(d, ctx), d)],
@@ -151,6 +176,7 @@ export default {
       x_correccion: d.resultado === "autorizado_correccion" ? d.correccion.trim() : false,
       x_observaciones: d.observaciones?.trim() || false,
       x_autorizacion_remota: d.remota === "si",
+      ...(d.empresa_id ? { x_empresa_id: Number(d.empresa_id) } : {}),
       x_firma_encargado: d.firma_encargado, x_firma_autoriza: d.remota === "si" ? false : d.firma_autoriza,
       ...control
     };

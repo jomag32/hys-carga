@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { crearAts, validarAts, inicioTurno, diaOdoo, hoyAr, puedeCargar, huella, instante } from "./ats.js";
+import { crearAts, validarAts, inicioTurno, diaOdoo, hoyAr, puedeCargar, huella, instante, leerEmpresas, nombreCorto } from "./ats.js";
 
 // Odoo simulado (datos de EJEMPLO, repo público).
 const AHORA = Date.parse("2026-10-20T06:50:00-03:00"); // martes, 06:50 de Argentina
@@ -12,7 +12,8 @@ const ITEMS = [
     x_bloque: "Chequeo", x_critico: [4, 5, 6, 7, 9].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![4, 5, 6, 7, 9].includes(i + 1), x_version: "v1" })),
   ...Array.from({ length: 10 }, (_, i) => ({ id: i + 11, x_codigo: `F08L-${String(i + 1).padStart(2, "0")}`, x_name: `Control logística ${i + 1}`, x_formulario: "F08_LOG",
     x_bloque: "Chequeo", x_critico: [6, 7, 8].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![6, 7].includes(i + 1), x_version: "v1" }))];
-const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado" }, { id: 16, name: "Otra Persona Ejemplo", job_title: "Operario" }]; // 18 no se puede leer (regla de RR. HH.)
+const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado", company_id: [3, "CORMET EJEMPLO"] }, { id: 16, name: "Otra Persona Ejemplo", job_title: "Operario", company_id: [1, "COOP. EL SOL EJEMPLO"] }];
+const EMPRESAS = [{ id: 1, name: "COOP. EL SOL EJEMPLO" }, { id: 3, name: "CORMET EJEMPLO" }, { id: 2, name: "OTRA EMPRESA" }]; // 18 no se puede leer (regla de RR. HH.)
 const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_rol: "inspector", x_active: true },
   { id: 3, x_name: "Encargado Logística Ejemplo", x_legajo: "0003", x_rol: "encargado", x_sector: "logistica", x_active: true },
   { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true }];
@@ -39,7 +40,7 @@ function armar({ previos = [], ahora = AHORA } = {}) {
       return [id];
     }
     const base = { x_hys_turno: TURNOS, x_hys_item_plantilla: ITEMS, x_hys_config: [{ x_ats_min_justif: 10, x_ats_horas_tardia: 24 }], "hr.employee": EMPLEADOS.map((e) => ({ ...e, active: true })),
-      x_hys_inspector: INSPECTORES, x_hys_ats: db.x_hys_ats, x_hys_ats_linea: db.x_hys_ats_linea }[m] || [];
+      "res.company": EMPRESAS, x_hys_inspector: INSPECTORES, x_hys_ats: db.x_hys_ats, x_hys_ats_linea: db.x_hys_ats_linea }[m] || [];
     const dom = (args[0] || []).filter((d) => Array.isArray(d) && !["x_active", "active"].includes(d[0]) && d[0] !== "x_formulario");
     let r = base.filter((x) => dom.every((d) => cumple(x, d)));
     if (m === "x_hys_ats" && kw.order?.startsWith("x_fecha desc")) r = [...r].sort((a, b) => String(b.x_fecha).localeCompare(String(a.x_fecha)) || b.id - a.id);
@@ -213,4 +214,26 @@ test("catálogo: turnos con hora, controles por sector, personas", async () => {
 test("validarAts puro: cuerpo inválido", () => {
   const { errores } = validarAts({ formulario: "F02" }, { turno: null, items: [] });
   assert.ok(errores.length >= 2);
+});
+
+test("empresa del encabezado: catálogo con opciones; válida se guarda, ajena → 422, sin empresa → se acepta (vale la del encargado)", async () => {
+  const { api, db } = armar();
+  const c = await api.catalogo();
+  assert.deepEqual(c.empresas, [{ id: 1, nombre: "COOP. EL SOL EJEMPLO", corto: "Coop. El Sol" }, { id: 3, nombre: "CORMET EJEMPLO", corto: "Cormet" }]);
+  assert.equal(c.personas.deposito.find((p) => p.id === 17).empresa_id, 3);
+  assert.equal(c.personas.deposito.find((p) => p.id === 18).empresa_id, null);
+  await err(api.recibir(cuerpo({ x_empresa_id: 2 }), { sesion: SES }), 422, /Empresa inválida/);
+  await err(api.recibir(cuerpo({ x_empresa_id: "3" }), { sesion: SES }), 422, /Empresa inválida/);
+  const r = await api.recibir(cuerpo({ x_empresa_id: 3 }), { sesion: SES });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_ats[0].x_empresa_id, 3);
+  const b = armar();
+  await b.api.recibir(cuerpo(), { sesion: SES });
+  assert.equal("x_empresa_id" in b.db.x_hys_ats[0], false);
+});
+
+test("leerEmpresas: por defecto 1,3; configurable", () => {
+  assert.deepEqual(leerEmpresas({}), [1, 3]);
+  assert.deepEqual(leerEmpresas({ ODOO_ATS_EMPRESAS_IDS: "1, 2,x,2" }), [1, 2]);
+  assert.equal(nombreCorto("CORMET S.A."), "Cormet");
 });

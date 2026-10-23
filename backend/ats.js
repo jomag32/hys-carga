@@ -1,6 +1,7 @@
 // F08 · ATS de turno sectorial (piloto Depósito Central y Logística y Mantenimiento).
 // Decisiones D-01…D-16 aceptadas por Jorge el 20/10/2026 (F08-plan-implementacion-2026-10-20.md).
-//   GET  /api/v1/ats/catalogo        → turnos (x_hys_turno), controles (x_hys_item_plantilla F08_DEP/F08_LOG) y personas del sector (hr.employee)
+//   GET  /api/v1/ats/catalogo        → turnos (x_hys_turno), controles (x_hys_item_plantilla F08_DEP/F08_LOG), personas del sector (hr.employee)
+//                                      y empresas para el encabezado del PDF (res.company, ODOO_ATS_EMPRESAS_IDS)
 //   GET  /api/v1/ats?sector=&fecha=  → ATS de ese sector y día [{id, name, turno_id, resultado}] (aviso «ya hay ATS»)
 //   POST /api/v1/ats                 → create de x_hys_ats + x_linea_ids + x_tarea_ids con MIA (idempotente)
 // Todo con sesión de inspector (Bearer, como /fichas). Puede cargar un x_hys_inspector con x_rol «encargado»
@@ -59,7 +60,7 @@ export function validarAts(cuerpo, ctx) {
   if (!UUID.test(cuerpo.idempotency_key || "")) mal("idempotency_key", "Clave de envío inválida");
   const v = cuerpo.odoo?.vals;
   if (!v || typeof v !== "object") { mal("odoo.vals", "Faltan los valores"); return { errores, vals: null }; }
-  const { turno, items, personas, minJustif = 10, ahora = Date.now() } = ctx;
+  const { turno, items, personas, empresas = null, minJustif = 10, ahora = Date.now() } = ctx;
 
   // 1-2 · sector, turno y fecha
   if (!SECTORES[v.x_sector]) mal("x_sector", "Sector inválido (Depósito Central o Logística y Mantenimiento)");
@@ -75,6 +76,10 @@ export function validarAts(cuerpo, ctx) {
   if (!Number.isFinite(control)) mal("x_fecha_hora_control", "Falta la fecha y hora de carga (con zona)");
   else if (control > ahora + 10 * 60000) mal("x_fecha_hora_control", "La hora del celular está adelantada: revisá la fecha y hora del teléfono");
   if (!texto(v.x_actividades)) mal("x_actividades", "Contá las actividades del turno");
+
+  // Empresa del encabezado del PDF (opcional: vacía → la del encargado en Odoo)
+  const emp = v.x_empresa_id;
+  if (emp !== undefined && emp !== null && emp !== false && (!Number.isInteger(emp) || !empresas || !empresas.has(emp))) mal("x_empresa_id", "Empresa inválida: elegí Coop. El Sol o Cormet (recargá la app)");
 
   // 10 · personas
   for (const [k, n] of [["x_encargado_id", "el encargado"], ["x_autoriza_id", "quién autoriza"]]) {
@@ -156,6 +161,7 @@ export function validarAts(cuerpo, ctx) {
     vals.x_inicio_turno = aOdoo(ini);
     if (Number.isFinite(control)) vals.x_antes_de_turno = control <= ini;
   }
+  if (Number.isInteger(emp) && empresas?.has(emp)) vals.x_empresa_id = emp;
   if (turno?.x_codigo_ats) vals.x_codigo_ats = turno.x_codigo_ats;
   if (Number.isInteger(v.x_ats_anterior_id) && v.x_ats_anterior_id > 0) vals.x_ats_anterior_id = v.x_ats_anterior_id;
   return { errores, vals };
@@ -168,7 +174,7 @@ export function puedeCargar(insp, sector) {
   return true; // inspector HyS (x_rol vacío = inspector, registros anteriores)
 }
 
-export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf() } = {}) {
+export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf(), empresasIds = leerEmpresas() } = {}) {
   let cat = null, catHasta = 0, catEnCurso = null;
   const porClave = new Map(), enCurso = new Map();
   let cola = Promise.resolve();
@@ -180,6 +186,10 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
       ej("x_hys_turno", "search_read", [[["x_active", "=", true]]], { fields: ["id", "x_name", "x_codigo", "x_sector", "x_hora_inicio", "x_dias", "x_encargado_id", "x_autoriza_id", "x_codigo_ats", "x_secuencia"], order: "x_sector, x_secuencia, id" }),
       ej("x_hys_item_plantilla", "search_read", [[["x_formulario", "in", ["F08_DEP", "F08_LOG"]], ["x_active", "=", true]]], { fields: ["id", "x_codigo", "x_name", "x_formulario", "x_bloque", "x_critico", "x_secuencia", "x_admite_na", "x_version"], order: "x_formulario, x_secuencia, id" }),
       ej("x_hys_config", "search_read", [[]], { fields: ["x_ats_min_justif", "x_ats_horas_tardia"], limit: 1 })]);
+    // Empresas: si la cuenta no puede leer alguna, se ofrece igual con su id (Odoo valida al guardar).
+    const comp = empresasIds.length ? await ej("res.company", "search_read", [[["id", "in", empresasIds]]], { fields: ["id", "name"] })
+      .catch((e) => { console.log("ats: no se pudieron leer las empresas", e instanceof ErrorOdoo ? e.message : e?.name); return []; }) : [];
+    const empresas = empresasIds.map((id) => ({ id, nombre: comp.find((c) => c.id === id)?.name || `Empresa ${id}` }));
     const personas = {};
     for (const s of Object.keys(SECTORES)) {
       const deps = departamentos?.[s];
@@ -188,18 +198,18 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
       const dom = !filtro ? [["active", "=", true]]
         : extra.length ? ["|", ["id", "in", extra], "&", ["active", "=", true], ["department_id", "child_of", deps]]
           : [["active", "=", true], ["department_id", "child_of", deps]];
-      const regs = await ej("hr.employee", "search_read", [dom], { fields: ["id", "name", "job_title"], order: "name" });
-      personas[s] = regs.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || null }));
+      const regs = await ej("hr.employee", "search_read", [dom], { fields: ["id", "name", "job_title", "company_id"], order: "name" });
+      personas[s] = regs.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || null, empresa_id: m2oId(e.company_id) }));
       // Encargado / autoriza por defecto del turno que la cuenta de servicio no puede leer en hr.employee
       // (reglas de acceso de RR. HH.): se agregan con el nombre que trae el turno, para poder elegirlos.
       for (const t of turnos.filter((x) => x.x_sector === s)) {
         for (const [m2o, puesto] of [[t.x_encargado_id, "Encargado del turno"], [t.x_autoriza_id, "Autoriza el turno"]]) {
           const id = m2oId(m2o);
-          if (id && !personas[s].some((p) => p.id === id)) personas[s].push({ id, nombre: Array.isArray(m2o) ? String(m2o[1] || id) : String(id), puesto });
+          if (id && !personas[s].some((p) => p.id === id)) personas[s].push({ id, nombre: Array.isArray(m2o) ? String(m2o[1] || id) : String(id), puesto, empresa_id: null });
         }
       }
     }
-    return { turnos, items, personas, minJustif: cfg[0]?.x_ats_min_justif || 10, horasTardia: cfg[0]?.x_ats_horas_tardia || 24, filtrado: !!departamentos };
+    return { turnos, items, personas, empresas, minJustif: cfg[0]?.x_ats_min_justif || 10, horasTardia: cfg[0]?.x_ats_horas_tardia || 24, filtrado: !!departamentos };
   }
   async function catalogoInterno() {
     if (cat && ahora() < catHasta) return cat;
@@ -218,7 +228,8 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
         dias: String(t.x_dias || "").split(",").map((d) => Number(d.trim())).filter((d) => d >= 0 && d <= 6),
         encargado_id: m2oId(t.x_encargado_id), autoriza_id: m2oId(t.x_autoriza_id), codigo_ats: t.x_codigo_ats || null })),
       controles: { F08_DEP: it("F08_DEP"), F08_LOG: it("F08_LOG") },
-      personas: c.personas, min_justificacion_na: c.minJustif
+      personas: c.personas, min_justificacion_na: c.minJustif,
+      empresas: c.empresas.map((e) => ({ id: e.id, nombre: e.nombre, corto: nombreCorto(e.nombre) }))
     };
   }
 
@@ -250,7 +261,7 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
       const turno = c.turnos.find((t) => t.id === v.x_turno_id) || null;
       const items = c.items.filter((x) => x.x_formulario === SECTORES[v.x_sector]?.plantilla);
       const personas = c.filtrado ? new Set((c.personas[v.x_sector] || []).map((x) => x.id)) : null;
-      const { errores, vals } = validarAts(cuerpo, { turno, items, personas, minJustif: c.minJustif, ahora: ahora() });
+      const { errores, vals } = validarAts(cuerpo, { turno, items, personas, empresas: new Set(c.empresas.map((e) => e.id)), minJustif: c.minJustif, ahora: ahora() });
       if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores });
       const cargador = await leerInspector(idCargador);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
@@ -319,6 +330,19 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
 export function leerAccionPdf(env = process.env) {
   const n = Number(env.ODOO_ATS_PDF_ACCION_ID);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** ODOO_ATS_EMPRESAS_IDS = ids de res.company elegibles en el ATS (x_empresa_id), separados por coma. Por defecto 1,3. */
+export function leerEmpresas(env = process.env) {
+  const ids = String(env.ODOO_ATS_EMPRESAS_IDS ?? "1,3").split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  return [...new Set(ids)];
+}
+/** Nombre corto para el botón del celular. */
+export function nombreCorto(nombre) {
+  const n = String(nombre || "");
+  if (/el\s+sol/i.test(n)) return "Coop. El Sol";
+  if (/cormet/i.test(n)) return "Cormet";
+  return n.length > 22 ? n.slice(0, 21) + "…" : n;
 }
 
 /** ATS_DEPARTAMENTOS = JSON {"deposito":[ids de hr.department],"logistica":[…]} para acotar las personas de cada sector. */
