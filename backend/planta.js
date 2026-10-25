@@ -85,9 +85,12 @@ export const ITEMS_RESPALDO = {
 
 // ---------------------------------------------------------------- lectura de Odoo (MIA, solo lectura)
 export const AVISO_SIN_JEFE = "Todavía no hay Jefe de Producción elegido en Odoo: escribí a mano quién toma conocimiento.";
-export const avisoSinValidador = (lugar) => lugar === "oficina"
-  ? "Todavía no hay COO elegido en Odoo: la inspección se guarda sin validador (HyS lo asigna después)."
-  : "Todavía no hay Dirección de Fábrica elegida en Odoo: la recorrida se guarda sin validador (HyS lo asigna después).";
+/** Aviso sin validador, según formulario: F03 «la recorrida», F04 «el check». */
+export const avisoSinValidador = (lugar, formulario = "F03") => {
+  const quien = lugar === "oficina" ? "Todavía no hay COO elegido en Odoo" : "Todavía no hay Dirección de Fábrica elegida en Odoo";
+  const que = formulario === "F04" ? "el check se guarda" : "la recorrida se guarda";
+  return `${quien}: ${que} sin validador (HyS lo asigna después).`;
+};
 const CAMPOS_CONFIG = ["x_jefe_produccion_id", "x_validador_fabrica_id", "x_coo_id", "x_f03_dia_vence", "x_f04_dia_vence"];
 const m2o = (v) => (Array.isArray(v) ? { id: v[0], nombre: v[1] } : null);
 
@@ -162,7 +165,7 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
     const validador = reglas.lugar === "oficina" ? c.coo : c.validador_fabrica;
     const avisos = [];
     if (reglas.lugar === "fabrica" && !tc) avisos.push(AVISO_SIN_JEFE);
-    if (!validador) avisos.push(avisoSinValidador(reglas.lugar));
+    if (!validador) avisos.push(avisoSinValidador(reglas.lugar, formulario));
     return { formulario, lugar: reglas.lugar, plantilla: reglas.plantilla, fuente_items: its.fuente,
       items: its.lista.map(({ codigo, nombre, bloque, secuencia, critico, admite_na }) => ({ codigo, nombre, bloque, secuencia, critico, admite_na })),
       sectores: formulario === "F03" ? SECTORES_FABRICA : [],

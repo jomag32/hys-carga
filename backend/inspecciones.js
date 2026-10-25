@@ -185,7 +185,7 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
         const validador = reglas.lugar === "oficina" ? cfgP.coo : cfgP.validador_fabrica;
         if (validador && ci.x_validador_id) vals.x_validador_id = validador.id;
         // Sin validador elegido en Odoo: se guarda igual (sin x_validador_id) y se avisa; R-VAL-1 no asigna actividad.
-        avisosPlanta = validador ? [] : [avisoSinValidador(reglas.lugar)];
+        avisosPlanta = validador ? [] : [avisoSinValidador(reglas.lugar, vals.x_formulario)];
         // Responsable del cambio por sector («No» de F03): el del sector o el Jefe de Producción; solo si el campo existe.
         if (vals.x_formulario === "F03") {
           for (const [, , l] of vals.x_linea_ids) {

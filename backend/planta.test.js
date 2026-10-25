@@ -307,7 +307,7 @@ test("roles vacíos: la recorrida se guarda sin x_validador_id, pendiente, y la 
   assert.equal(ins.x_validacion_estado, "pendiente");
   assert.equal(ins.x_tc_nombre, "Reemplazo Ejemplo");
   assert.equal(r.cuerpo.sin_validador, true);
-  assert.match(r.cuerpo.aviso, /Dirección de Fábrica/);
+  assert.match(r.cuerpo.aviso, /Dirección de Fábrica.*la recorrida se guarda sin validador/);
   assert.deepEqual(r.cuerpo.responsables_sector, { pintura: null });
 });
 
@@ -315,7 +315,21 @@ test("F04 Oficina sin COO: se guarda sin validador y avisa", async () => {
   const { recibir } = armar({ config: VACIA });
   const r = await recibir(f04({ lugar: "oficina" }));
   assert.equal(r.estado, 201);
-  assert.match(r.cuerpo.aviso, /COO/);
+  assert.match(r.cuerpo.aviso, /COO.*el check se guarda sin validador/);
+});
+
+test("F04 Fábrica sin validador: el aviso dice «el check» (no «la recorrida»), en el envío y en el catálogo", async () => {
+  const { recibir } = armar({ config: VACIA });
+  const r = await recibir(f04());
+  assert.match(r.cuerpo.aviso, /Dirección de Fábrica.*el check se guarda sin validador/);
+  assert.doesNotMatch(r.cuerpo.aviso, /recorrida/);
+  const f = odooFalso({ config: VACIA });
+  const p = crearPlanta(() => f.cliente, { ahora: () => Date.parse("2026-10-21T12:00:00Z") });
+  const c4 = await p.catalogo("F04", "fabrica");
+  assert.ok(c4.avisos.some((a) => /el check se guarda/.test(a)));
+  assert.ok(!c4.avisos.some((a) => /recorrida/.test(a)));
+  const c3 = await p.catalogo("F03");
+  assert.ok(c3.avisos.some((a) => /la recorrida se guarda/.test(a)));
 });
 
 test("responsables por sector: se usan si están; si no, Jefe de Producción; la línea lleva x_responsable_id si el campo existe", async () => {
