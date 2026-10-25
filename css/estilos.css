@@ -202,3 +202,8 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 
 /* Versión de la app (inicio e ingreso): chiquita, para confirmar qué corre el celular. */
 .version-app { margin: 1.25rem 0 .25rem; text-align: center; font-size: .75rem; color: #6b7280; }
+
+/* Vencimientos legales (F06, solo lectura) */
+.lista-vencimientos { display: grid; gap: .6rem; margin: 1rem 0; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+.tarjeta-vencimiento { border: 1px solid #ccc; border-left: 6px solid #999; border-radius: 8px; padding: .6rem .8rem; background: #fff; }
+.tarjeta-vencimiento.verde { border-left-color: #2e7d32; } .tarjeta-vencimiento.amarillo { border-left-color: #f9a825; } .tarjeta-vencimiento.rojo { border-left-color: #c62828; }

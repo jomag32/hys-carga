@@ -22,12 +22,12 @@ const CLAVE_LS = "hys_cola";
 
 // ---------------------------------------------------------------- modo prueba (18/10/2026 21:19, pedido de Jorge)
 // En producción F01 (POST /api/v1/fichas, 18/10/2026 22:12), F02, F03 y F04 (POST /api/v1/inspecciones; F03 y F04
-// desde el 25/10/2026) y F08 llegan a Odoo. F05–F07 se guardan
+// desde el 25/10/2026) F08, F05 (POST /api/v1/eventos) y F06 (POST /api/v1/vencimientos, desde el 25/10/2026) llegan a Odoo. F07 se guarda
 // en este celular (api/odoo.js modo MOCK: localStorage "hys_mock_db_v2") y NO llegan a Odoo.
 export const TEXTO_PRUEBA = "Guardado solo en el celular (modo prueba) — no llega a Odoo";
 export const ETIQUETA_PRUEBA = "Modo prueba · no llega a Odoo";
 /** ¿Este formulario llega a Odoo de verdad? (con el backend real) */
-export const formularioConectado = (cod) => ["F01", "F02", "F03", "F04", "F08"].includes(cod) && CONFIG.MODO_ENVIO === "backend";
+export const formularioConectado = (cod) => ["F01", "F02", "F03", "F04", "F05", "F06", "F08"].includes(cod) && CONFIG.MODO_ENVIO === "backend";
 /** ¿Este envío es de modo prueba? «crear»/«escribir» van siempre al guardado local (no hay endpoint en el
  *  backend), también los guardados con versiones anteriores que no traían la marca simulado. Solo es real
  *  un «enviar» al backend que respondió sin simulado. */

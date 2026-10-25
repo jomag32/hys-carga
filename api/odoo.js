@@ -337,6 +337,21 @@ export async function leerCatalogoPlanta(formulario, lugar = "fabrica") {
   return conCopia(`planta-${formulario}-${lugar || ""}`, () => leerDelBackend(`/inspecciones/catalogo?${q}`));
 }
 
+/** F05: empleados para «Persona involucrada» (GET /api/v1/eventos/catalogo, con sesión). */
+export async function leerCatalogoEventos() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") return { empleados: M.EMPLEADOS.map((e) => ({ id: e.id, nombre: e.name })) };
+  return conCopia("eventos-catalogo", () => leerDelBackend("/eventos/catalogo"));
+}
+
+/** F06: controles legales con semáforo (GET /api/v1/vencimientos). Lo ve todo el que ingresa (decisión 25/10/2026). */
+export async function leerVencimientos() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") {
+    return { hoy: new Date().toISOString().slice(0, 10), controles: M.CONTROLES_LEGALES.map((c) => ({ id: c.id, nombre: c.x_name, referencia: c.x_referencia,
+      donde: c.x_donde, periodicidad: c.x_periodicidad, prioridad: c.x_prioridad, estado: c.x_estado || "sin_estado", fecha_vence: c.x_fecha_vence || null, color: "rojo", dias: null })) };
+  }
+  return conCopia("vencimientos", () => leerDelBackend("/vencimientos"));
+}
+
 /** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
 export async function leerAtsDelDia(sector, fecha) {
   if (CONFIG.OBRAS_FUENTE !== "backend") return [];
@@ -491,7 +506,7 @@ const simulado = {
     const ya = lista.find((x) => x.idempotency_key === clave);
     if (ya) return { ...ya.respuesta, repetido: true }; // mismo envío: misma respuesta (200), sin duplicar
     const n = lista.filter((x) => x.endpoint === `POST /api/v1${endpoint}`).length + 1;
-    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : endpoint === "/ats" ? `ATS-SIM-${String(n).padStart(5, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
+    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : endpoint === "/ats" ? `ATS-SIM-${String(n).padStart(5, "0")}` : endpoint === "/eventos" ? `EV-SIM-${String(n).padStart(4, "0")}` : endpoint === "/vencimientos" ? `VEN-SIM-${String(n).padStart(4, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
     lista.unshift({ idempotency_key: clave, endpoint: `POST /api/v1${endpoint}`, recibido: new Date().toISOString(),
       respuesta, cuerpo: recortarBase64(cuerpo) });
     try { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 30))); }
