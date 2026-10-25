@@ -30,7 +30,8 @@ sin token o vencido → **401** `{codigo: "sesion"}`. `/healthz`, `/api/v1/inspe
   Riesgos de `x_hys_riesgo`, hitos de `x_hys_ficha_hito`. No expone centro de salud, documentación del cliente ni GPS. Caché 5 min.
 - `GET /api/v1/fichas?ot=<id>` → la Ficha activa de esa OT, o `null` (obra sin Ficha → Clase A).
 - `GET /api/v1/hitos?ot=<id>` → los `hitos` de la Ficha activa de la OT (`x_hys_ficha_hito`; ya **no** `project.milestone`); `[]` sin Ficha.
-- `POST /api/v1/inspecciones` → crea la inspección F02 en Odoo (cuerpo = el que arma el celular: `{formulario, idempotency_key, odoo: {model, method, vals}, contexto}`).
+- `GET /api/v1/inspecciones/catalogo?formulario=F03|F04&lugar=fabrica|oficina` → con sesión: ítems de la plantilla (o los de respaldo), sectores, toma de conocimiento precargada (Jefe de Producción) y período (inicio, vence, si ya hay realizada o programada).
+- `POST /api/v1/inspecciones` → crea la inspección F02, F03 o F04 en Odoo (F03/F04: completa la programada del período; si ya hay una realizada, queda `fuera_programa` con aviso) (cuerpo = el que arma el celular: `{formulario, idempotency_key, odoo: {model, method, vals}, contexto}`).
   - Valida como el celular (422 con `errores`): OT si ámbito obra, hito (`x_ficha_hito_id`, o `x_hito_id` de envíos viejos en cola) si «inicio de hito crítico», inspector, toma de conocimiento y firma, fecha UTC, GPS, `x_cargado_por`, al menos un ítem; cada «No» con gravedad y foto.
   - Solo pasan los campos que existen y se pueden escribir en `x_hys_inspeccion` / `x_hys_inspeccion_linea` (`fields_get`, cacheado 10 min); los demás se descartan y se listan en `descartados`. El celular no puede fijar `x_name`, `x_validacion_*`, `x_validador_id`, `x_asignado_id` ni `x_fecha_recepcion`.
   - Idempotencia: busca por `x_idempotency_key`; si ya existe → **200** `{id, name, repetido: true}` sin duplicar. Si no → create con `x_linea_ids` `[0, 0, {...}]` → **201** `{id, name}`.

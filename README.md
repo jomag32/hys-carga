@@ -170,7 +170,7 @@ Chrome sin ventana (Playwright) en tamaño celular (390×844): ingreso con búsq
 
 - **HTML + CSS + JavaScript sin frameworks, sin build y sin CDNs.** Un solo `index.html` con ruteo por *hash* (`#/f01`, `#/envios`, …) en `app.js`. Cada formulario es un **módulo ES** en `vistas/` que se carga recién cuando se abre (`import()`). Se eligió así porque es lo más liviano para un celular con mala señal, se sirve como archivos estáticos (desde el backend de Render o cualquier servidor) y no hace falta Node ni compilar para cambiar algo.
 - Las vistas son **declarativas**: cada una lista sus pasos cortos (pocos campos por pantalla), la revisión y cómo se arma el registro `x_hys_*`. El motor común (`componentes/asistente.js`) pone Atrás/Siguiente, valida cada paso, guarda borrador, muestra la revisión final y manda a la cola.
-- Checklists (F02, F03, F04, F08): Sí / No / N/A con botones grandes. Cada «No» pide **gravedad + foto obligatoria**; en F03, F04 y F08 arma además el **desvío** anidado (en F02 lo genera el backend u Odoo, ver Pendiente). En F03 además pide el sector; en F08 el N/A pide justificación y un crítico ★ en «No» impide «Autorizado».
+- Checklists (F02, F03, F04, F08): Sí / No / N/A con botones grandes. Cada «No» pide **gravedad + foto obligatoria**; en F04 (modo prueba) y F08 arma además el **desvío** anidado; en F02 y F03 el «No» queda en su línea (los desvíos llegan con F07). En F03 además pide el sector (obligatorio en cada «No»); en F08 el N/A pide justificación y un crítico ★ en «No» impide «Autorizado».
 
 ## Archivos
 
@@ -223,4 +223,4 @@ hys-carga/
 - **Desvíos:** cada «No» debería generar un `x_hys_desvio`; no va en este payload (el modelo no está confirmado). Lo resuelve el backend o una automatización de Odoo.
 - Fotos y firma viajan en base64 dentro del JSON; el diseño (§5.3) prefiere `multipart` con Blob. Sin *service worker* todavía (la app necesita señal para abrir la primera vez).
 - F02 se crea con el tipo elegido; enlazarla con una inspección **programada** existente (`write` en vez de `create`) lo resuelve el backend (§5.5).
-- Turnos (F08): Mañana 07:00 y Tarde 14:00 son un supuesto. F01, F03–F08 siguen con el guardado de ejemplo (todavía no usan la capa de envío de F02).
+- Turnos (F08): Mañana 07:00 y Tarde 14:00 son un supuesto. F03 usa la capa de envío de F02 (rama feature/f03-fase1, sin deploy): completa la programada de la semana o queda fuera de programa. F04–F08 siguen con el guardado de ejemplo.
