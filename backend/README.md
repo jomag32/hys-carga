@@ -87,7 +87,7 @@ Prueba local de punta a punta (envío real a Odoo): backend local en el puerto 8
   Valida tipo, fecha no futura, Dónde = Obra (con OT) · uno de los 8 sectores · Oficina, qué pasó y quién reporta; con lesión (con o sin baja)
   **aviso telefónico obligatorio con hora** (y a quién, opcional); con baja, días ≥ 1. Marca `x_cargado_en_plazo` (≤ 24 h). Odoo numera `EV-AAAA-NNNN`,
   fija la investigación a 72 h y crea la actividad a HyS (automatización R-EVE-1). En Odoo lo leen solo HyS, Jefe de Producción, Desarrollo y «HyS / Lectura F05».
-- `GET /api/v1/vencimientos` (sesión; todos): controles legales con semáforo (rojo vencido/sin estado, amarillo ≤ 30 días, verde).
-- `POST /api/v1/vencimientos` (sesión; solo inspectores HyS, encargados → 403) → `x_hys_vencimiento_carga` + actualiza `x_hys_control_legal`.
+- `GET /api/v1/vencimientos` (sesión; solo HyS: inspector/responsable/desarrollo, el resto → 403): controles legales con semáforo (rojo vencido/sin estado, amarillo ≤ 30 días, verde).
+- `POST /api/v1/vencimientos` (sesión; solo HyS, el resto → 403) → `x_hys_vencimiento_carga` + actualiza `x_hys_control_legal`.
 - Alertas: acción programada diaria en Odoo a 30/15/7/0 días y vencidos (actividad al responsable del control y a HyS).
 - Creación en Odoo: `scripts/odoo-crear-f05-f06.py` (simulación por defecto; `--aplicar`).
