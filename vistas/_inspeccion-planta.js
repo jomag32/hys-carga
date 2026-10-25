@@ -13,7 +13,7 @@ import { leerSesion } from "../componentes/sesion.js";
 // Igual que F02: inspector de x_hys_inspector (preseleccionado quien ingresó: nadie carga por otro),
 // ítems del catálogo del backend (x_hys_item_plantilla), firma del inspector, toma de conocimiento
 // precargada (nombre servido por el backend desde Odoo, editable por si firma un reemplazo).
-// F04 todavía usa la versión de prueba de abajo (pantalla F04 en fase 2).
+// F04 (25/10/2026) usa lo mismo, con selector de lugar. Las funciones «de prueba» de abajo ya no las usa nadie conectado.
 
 /** Catálogo + inspectores HyS. Ítems con id = código (la clave de d.respuestas). */
 export async function prepararPlanta(ctx, formulario, lugar = "fabrica") {

@@ -251,6 +251,24 @@ test("F04 Fábrica y Oficina: ítems por lugar, vence el día 7, validador Fábr
   await assert.rejects(recibir(mal), (e) => e.estado === 422 && /no es de F04_FAB/.test(e.message));
 });
 
+test("F04 completa la programada del mes de SU lugar; la de otro lugar no se toca; el 2.º del mes → fuera_programa", async () => {
+  const base = { x_formulario: "F04", x_tipo_programa: "check_mensual", x_estado: "programada", x_fecha_vencimiento: "2026-10-08 02:59:00", x_validacion_estado: "no_aplica" };
+  const progOfi = { ...base, id: 60, x_name: "F04 programada · Oficina", x_ambito: "oficina", x_lugar: "oficina" };
+  const progFab = { ...base, id: 61, x_name: "F04 programada · Fábrica", x_ambito: "fabrica", x_lugar: "fabrica" };
+  const { recibir, db } = armar({ registros: [progOfi, progFab] });
+  const r = await recibir(f04());
+  assert.equal(r.cuerpo.programada_completada, 61);
+  assert.equal(db.find((x) => x.id === 61).x_estado, "realizada");
+  assert.equal(db.find((x) => x.id === 60).x_estado, "programada");
+  assert.equal(db.find((x) => x.id === 61).x_validador_id, 32);
+  const r2 = await recibir(f04({ fecha: "2026-10-15 12:00:00" }));
+  assert.equal(r2.cuerpo.fuera_programa, true);
+  assert.ok(r2.cuerpo.aviso);
+  const r3 = await recibir(f04({ lugar: "oficina" }));
+  assert.equal(r3.cuerpo.programada_completada, 60);
+  assert.equal(db.find((x) => x.id === 60).x_validador_id, 33);
+});
+
 test("catálogo F03: ítems, sectores (Depósito Central), TC precargada editable y aviso de la semana", async () => {
   const f = odooFalso({ registros: [{ id: 1, x_formulario: "F03", x_tipo_programa: "recorrida_semanal", x_estado: "realizada", x_fecha_vencimiento: "2026-10-24 02:59:00" }] });
   const p = crearPlanta(() => f.cliente, { ahora: () => Date.parse("2026-10-22T15:00:00Z") });

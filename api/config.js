@@ -1,7 +1,7 @@
 // Configuración de hys-carga.
 //
 // ╔══════════════════════════════════════════════════════════════════════════════════════╗
-// ║  MODO_ENVIO: cómo se manda lo que se carga (F01, F02, F03 y F08 llegan a Odoo).          ║
+// ║  MODO_ENVIO: cómo se manda lo que se carga (F01, F02, F03, F04 y F08 llegan a Odoo).          ║
 // ║                                                                                        ║
 // ║   "simulado" → NO sale nada a la red. El celular valida el payload, lo guarda en la    ║
 // ║                lista local «enviados» (localStorage "hys_enviados_simulados") y lo      ║
