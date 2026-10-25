@@ -1,3 +1,4 @@
+import { SECTORES_FABRICA } from "./planta.js";
 // Validación del POST /api/v1/inspecciones (misma regla que el celular, api/odoo.js validarInspeccion),
 // más el filtrado por los campos que existen de verdad en Odoo (fields_get).
 
@@ -12,8 +13,13 @@ export const PROTEGIDOS_INSPECCION = new Set([
   "x_inspector_id",     // empleado (anterior): ya no se usa desde el celular
   "x_inspector_texto",   // lo arma el servidor con el registro de x_hys_inspector
   "x_ficha_id", "x_clase_al_inspeccionar", "x_clase_motivo"]); // los copia el servidor de la Ficha activa de la OT
+// F03/F04 (planta): sin obra. Lo que venga de OT, ficha o hito se descarta.
+export const SOLO_OBRA = ["x_ot_id", "x_hito_id", "x_ficha_hito_id", "x_ficha_id", "x_clase_al_inspeccionar", "x_clase_motivo", "x_presencial_obligatoria"];
+export const FORMULARIOS = ["F02", "F03", "F04"];
+const TIPOS_PLANTA = { F03: ["recorrida_semanal", "fuera_programa"], F04: ["check_mensual", "fuera_programa"] };
 export const PROTEGIDOS_LINEA = new Set(["id", "x_inspeccion_id"]);
 
+const SECTORES_F03 = SECTORES_FABRICA.map(([k]) => k);
 const sel = (campos, k) => (campos[k]?.selection || []).map(([v]) => v);
 const esFecha = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(v);
 
@@ -27,7 +33,9 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
   const mal = (campo, mensaje) => errores.push({ campo, mensaje });
   const descartados = new Set();
   if (!cuerpo || typeof cuerpo !== "object") return { errores: [{ campo: "cuerpo", mensaje: "Cuerpo inválido" }], vals: null, descartados: [] };
-  if (cuerpo.formulario !== "F02") mal("formulario", "Por ahora solo se recibe F02");
+  const form = cuerpo.formulario;
+  if (!FORMULARIOS.includes(form)) mal("formulario", "Formulario no admitido (F02, F03 o F04)");
+  const planta = form === "F03" || form === "F04";
   if (cuerpo.odoo?.model !== "x_hys_inspeccion" || cuerpo.odoo?.method !== "create") mal("odoo", "Se espera {model: 'x_hys_inspeccion', method: 'create', vals}");
   const v = cuerpo.odoo?.vals;
   if (!v || typeof v !== "object") { mal("odoo.vals", "Faltan los valores"); return { errores, vals: null, descartados: [] }; }
@@ -38,10 +46,19 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
   if (!UUID.test(clave || "")) mal("x_idempotency_key", "Clave de envío inválida");
   if (cuerpo.idempotency_key && cuerpo.idempotency_key !== clave) mal("idempotency_key", "No coincide con x_idempotency_key");
   if (claveCabecera && claveCabecera !== clave) mal("Idempotency-Key", "La cabecera no coincide con x_idempotency_key");
-  if (v.x_formulario !== "F02") mal("x_formulario", "Tiene que ser F02");
+  if (v.x_formulario !== form) mal("x_formulario", `Tiene que ser ${FORMULARIOS.includes(form) ? form : "F02"}`);
   if (!sel(ci, "x_ambito").includes(v.x_ambito)) mal("x_ambito", "Ámbito inválido");
   if (!sel(ci, "x_tipo_programa").includes(v.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
-  if (v.x_ambito === "obra" && !Number.isInteger(v.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
+  if (planta) {
+    // F03: Fábrica; F04: Fábrica u Oficina (x_ambito = x_lugar). Sin obra.
+    const lugares = form === "F03" ? ["fabrica"] : ["fabrica", "oficina"];
+    if (!lugares.includes(v.x_lugar)) mal("x_lugar", form === "F03" ? "La recorrida es en Fábrica" : "Lugar inválido (Fábrica u Oficina)");
+    if (v.x_ambito !== v.x_lugar) mal("x_ambito", "El ámbito tiene que coincidir con el lugar");
+    if (!TIPOS_PLANTA[form].includes(v.x_tipo_programa)) mal("x_tipo_programa", `Tipo inválido para ${form}: ${TIPOS_PLANTA[form].join(" o ")}`);
+    if (!v.x_firma_inspector) mal("x_firma_inspector", "Falta la firma del inspector");
+    for (const k of SOLO_OBRA) if (k in v) { descartados.add(k); }
+  } else if (form === "F02" && v.x_ambito !== "obra") mal("x_ambito", "F02 es de obra");
+  if (!planta && v.x_ambito === "obra" && !Number.isInteger(v.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
   // Hito crítico: el hito de la Ficha (x_ficha_hito_id). x_hito_id (project.milestone) solo por envíos viejos en cola.
   if (v.x_tipo_programa === "hito_critico" && !Number.isInteger(v.x_ficha_hito_id) && !Number.isInteger(v.x_hito_id))
     mal("x_ficha_hito_id", "Falta el hito (obligatorio en inicio de hito crítico)");
@@ -63,6 +80,7 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
   const vals = {};
   for (const [k, x] of Object.entries(v)) {
     if (k === "x_linea_ids") continue;
+    if (planta && SOLO_OBRA.includes(k)) continue;
     if (!ci[k] || ci[k].readonly || PROTEGIDOS_INSPECCION.has(k)) { descartados.add(k); continue; }
     vals[k] = limpiarBinario(ci[k], x);
   }
@@ -75,10 +93,12 @@ export function validarYFiltrar(cuerpo, campos, { claveCabecera } = {}) {
     const l = Array.isArray(c) && c[0] === 0 && c[1] === 0 && c[2] && typeof c[2] === "object" ? c[2] : null;
     if (!l) return mal(`x_linea_ids[${i}]`, "Comando inválido (se espera [0, 0, {...}])");
     if (!l.x_name || !l.x_bloque) mal(`x_linea_ids[${i}]`, "Ítem sin texto o bloque");
+    if (planta && !l.x_item_codigo) mal(`x_linea_ids[${i}].x_item_codigo`, `Ítem sin código: ${l.x_name || i + 1}`);
     if (!SELECCION_RESPUESTA.includes(l.x_respuesta)) mal(`x_linea_ids[${i}].x_respuesta`, `Sin responder: ${l.x_name || i + 1}`);
     if (l.x_respuesta === "no") {
       if (!SELECCION_CRITICIDAD.includes(l.x_criticidad)) mal(`x_linea_ids[${i}].x_criticidad`, `Falta la gravedad: ${l.x_name}`);
       if (!l.x_foto) mal(`x_linea_ids[${i}].x_foto`, `Falta la foto: ${l.x_name}`);
+      if (form === "F03" && !(cl.x_sector ? sel(cl, "x_sector") : SECTORES_F03).includes(l.x_sector)) mal(`x_linea_ids[${i}].x_sector`, `Falta el sector de Fábrica: ${l.x_name}`);
     }
     const out = {};
     for (const [k, x] of Object.entries(l)) {

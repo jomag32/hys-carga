@@ -3,6 +3,7 @@
 import { validarYFiltrar } from "./validar.js";
 import { ErrorOdoo } from "./odoo.js";
 import { textoInspector } from "./catalogos.js";
+import { crearPlanta, reglasDe, periodoDe } from "./planta.js";
 
 const CAMPOS_MS = 10 * 60 * 1000;
 const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
@@ -14,7 +15,7 @@ export class ErrorEntrada extends Error {
   constructor(estado, mensaje, extra = {}) { super(mensaje); this.estado = estado; this.extra = extra; }
 }
 
-export function crearInspecciones(cliente, catalogos) {
+export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cliente) } = {}) {
   let campos = null, camposHasta = 0;
   const enCurso = new Map(); // clave → promesa (dos envíos simultáneos con la misma clave = uno solo)
 
@@ -78,9 +79,21 @@ export function crearInspecciones(cliente, catalogos) {
   };
 
   /** Crea con número único; devuelve {id, name}. Corre en serie. */
-  function crearNumerado(vals, anio, clave) {
-    return enSerie(async () => {
+  const crearNumerado = (vals, anio, clave) => enSerie(() => crearNumeradoYa(vals, anio, clave));
+  /** Igual, pero ya dentro de enSerie. idExistente: completa ese registro (programada) en vez de crear. */
+  async function crearNumeradoYa(vals, anio, clave, idExistente = null) {
+    {
       let id = null;
+      if (idExistente) {
+        // Programada de la semana/mes: se completa con un solo write (datos + líneas + número).
+        const numero = await siguienteNumero(anio);
+        await cliente().ejecutar("x_hys_inspeccion", "write", [[idExistente], { ...vals, x_name: nombreCon(numero) }]);
+        id = idExistente;
+        if (!(await chocaCon(anio, numero, id))) {
+          ultimoDado.set(anio, Math.max(ultimoDado.get(anio) || 0, numeroDe(numero, anio)));
+          return { id, name: nombreCon(numero) };
+        }
+      }
       for (let intento = 0; intento < 5; intento++) {
         const numero = await siguienteNumero(anio);
         const nombre = nombreCon(numero);
@@ -106,7 +119,7 @@ export function crearInspecciones(cliente, catalogos) {
         // Choque: otro registro más viejo ya tiene este número → renumerar el nuestro.
       }
       throw new ErrorOdoo("No se pudo asignar un número de inspección único; reintentá en un momento");
-    });
+    }
   }
 
   /** soloValidar (uso interno/pruebas, no expuesto por HTTP): arma los vals finales sin crear nada. */
@@ -151,6 +164,29 @@ export function crearInspecciones(cliente, catalogos) {
       pon("x_fecha_recepcion", ahora);
       const ctx = cuerpo.contexto || {};
       if (ctx.modalidad && (ci.x_modalidad?.selection || []).some(([v]) => v === ctx.modalidad)) pon("x_modalidad", ctx.modalidad);
+      const reglas = reglasDe(vals.x_formulario, vals.x_lugar);
+      let cfgPlanta = null;
+      if (reglas) {
+        // ---- Rama «planta» (F03/F04): ítems del catálogo, validador de config, sin obra.
+        for (const k of ["x_ot_id", "x_hito_id", "x_ficha_hito_id"]) delete vals[k];
+        const [cfgP, its] = await Promise.all([planta.config(), planta.leerItems(reglas.plantilla)]);
+        cfgPlanta = cfgP;
+        const activos = new Set(its.lista.map((x) => x.codigo));
+        const vistos = new Set(), errores = [];
+        for (const [, , l] of vals.x_linea_ids) {
+          if (!activos.has(l.x_item_codigo)) errores.push({ campo: "x_item_codigo", mensaje: `Ítem que no es de ${reglas.plantilla}: ${l.x_item_codigo}` });
+          else if (vistos.has(l.x_item_codigo)) errores.push({ campo: "x_item_codigo", mensaje: `Ítem repetido: ${l.x_item_codigo}` });
+          vistos.add(l.x_item_codigo);
+        }
+        const faltan = [...activos].filter((k) => !vistos.has(k));
+        if (faltan.length) errores.push({ campo: "x_linea_ids", mensaje: `Faltan ítems por responder: ${faltan.join(", ")}` });
+        if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores, descartados });
+        const validador = reglas.lugar === "oficina" ? cfgP.coo : cfgP.validador_fabrica;
+        if (validador && ci.x_validador_id) vals.x_validador_id = validador.id;
+        if (ci.x_validacion_estado) vals.x_validacion_estado = "pendiente";
+        pon("x_modalidad", "presencial");
+        if (ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = false;
+      }
       // Ficha F01 de la OT (leída de Odoo al recibir, sin caché): ficha, clase y motivo NO salen del celular.
       if (vals.x_ot_id) {
         const f = await catalogos.fichaDeOt(vals.x_ot_id, { fresca: true });
@@ -165,15 +201,50 @@ export function crearInspecciones(cliente, catalogos) {
         }
       }
       if (vals.x_tipo_programa !== "hito_critico") { delete vals.x_ficha_hito_id; delete vals.x_hito_id; }
-      if (ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = PRESENCIAL_OBLIGATORIA.includes(vals.x_tipo_programa);
+      if (!reglas && ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = PRESENCIAL_OBLIGATORIA.includes(vals.x_tipo_programa);
       const cantNo = vals.x_linea_ids.filter(([, , l]) => l.x_respuesta === "no").length;
       if (ci.x_cant_no && !ci.x_cant_no.readonly) vals.x_cant_no = cantNo;
       // Secuencia de las líneas si no vino.
       vals.x_linea_ids.forEach(([, , l], i) => { if (c.linea.x_secuencia && l.x_secuencia === undefined) l.x_secuencia = i + 1; });
 
+      const anio = (vals.x_fecha_hora_control || ahora).slice(0, 4);
+      if (reglas) {
+        // Programa (D-01/D-02/decisión 7): vence el día configurado; si ya hay una realizada en el
+        // período → fuera_programa (y se avisa); si hay una programada → se completa esa.
+        const per = periodoDe(vals.x_fecha_hora_control, { periodo: reglas.periodo, diaVence: cfgPlanta.dia_vence, diaMes: cfgPlanta.dia_mes });
+        const decidir = async () => {
+          const extra = {};
+          let idProgramada = null;
+          if (vals.x_tipo_programa === "fuera_programa") vals.x_fecha_vencimiento = vals.x_fecha_hora_control;
+          else {
+            const regs = await planta.delPeriodo(vals.x_formulario, reglas, per);
+            if (regs.some((r) => r.x_estado === "realizada")) {
+              vals.x_tipo_programa = "fuera_programa";
+              vals.x_fecha_vencimiento = vals.x_fecha_hora_control;
+              extra.fuera_programa = true;
+              extra.aviso = reglas.periodo === "semana"
+                ? "Ya había una recorrida realizada esta semana: esta se registró como «fuera de programa»."
+                : "Ya había un check realizado este mes en este lugar: este se registró como «fuera de programa».";
+            } else {
+              vals.x_fecha_vencimiento = per.vence;
+              const prog = regs.find((r) => r.x_estado === "programada");
+              if (prog) { idProgramada = prog.id; extra.programada_completada = prog.id; }
+            }
+          }
+          extra.vence = vals.x_fecha_vencimiento;
+          return { idProgramada, extra };
+        };
+        if (soloValidar) { const d = await decidir(); return { estado: 200, cuerpo: { simulado: true, vals, descartados, ...d.extra } }; }
+        const { r, extra } = await enSerie(async () => {
+          const ya2 = await buscarPorClave(clave);
+          if (ya2) return { r: { id: ya2.id, name: ya2.x_name, repetido: true }, extra: {} };
+          const d = await decidir();
+          return { r: await crearNumeradoYa(vals, anio, clave, d.idProgramada), extra: d.extra };
+        });
+        return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...extra, ...(r.repetido ? { repetido: true } : {}) }) };
+      }
       if (soloValidar) return { estado: 200, cuerpo: { simulado: true, vals, descartados } };
 
-      const anio = (vals.x_fecha_hora_control || ahora).slice(0, 4);
       const r = await crearNumerado(vals, anio, clave);
       return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...(r.repetido ? { repetido: true } : {}) }) };
     })().finally(() => enCurso.delete(clave));
@@ -181,7 +252,7 @@ export function crearInspecciones(cliente, catalogos) {
     return p;
   }
 
-  return { recibir, leerCampos };
+  return { recibir, leerCampos, catalogo: (f, l) => planta.catalogo(f, l) };
 }
 
 /** Número NNNNN de un nombre «…INS-AAAA-NNNNN…» (con o sin prefijo de prueba); null si no es de ese año. */

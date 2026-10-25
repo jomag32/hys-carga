@@ -320,6 +320,23 @@ export async function leerCatalogoAts() {
   return { ...cat, sectores: (cat.sectores || []).map((s) => (Array.isArray(s) ? s : [s.codigo, s.nombre])) };
 }
 
+/** Catálogo F03/F04 (GET /api/v1/inspecciones/catalogo, con sesión): ítems de la plantilla, sectores,
+ *  nombre precargado de quien toma conocimiento (de Odoo, nunca del repo) y aviso del período.
+ *  Ejemplo (?dev=1 / OBRAS_FUENTE ≠ backend): ítems de datos-mock.js y nombres de ejemplo. */
+export async function leerCatalogoPlanta(formulario, lugar = "fabrica") {
+  if (CONFIG.OBRAS_FUENTE !== "backend") {
+    const plantilla = formulario === "F03" ? "F03" : lugar === "oficina" ? "F04_OFI" : "F04_FAB";
+    return clonar({ formulario, lugar, plantilla, fuente_items: "ejemplo",
+      items: M.ITEMS_PLANTILLA.filter((i) => i.x_formulario === plantilla && i.x_active !== false)
+        .map((i) => ({ codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, secuencia: i.x_secuencia, critico: !!i.x_critico, admite_na: true })),
+      sectores: formulario === "F03" ? null : [],
+      toma_conocimiento: { nombre: formulario === "F03" || lugar === "fabrica" ? "Jefe de Producción Ejemplo" : null, editable: true },
+      periodo: { realizada: false, programada: false, aviso: null } });
+  }
+  const q = `formulario=${encodeURIComponent(formulario)}${lugar ? `&lugar=${encodeURIComponent(lugar)}` : ""}`;
+  return conCopia(`planta-${formulario}-${lugar || ""}`, () => leerDelBackend(`/inspecciones/catalogo?${q}`));
+}
+
 /** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
 export async function leerAtsDelDia(sector, fecha) {
   if (CONFIG.OBRAS_FUENTE !== "backend") return [];
@@ -377,12 +394,15 @@ export const SELECCION = {
 export const CAMPOS_INSPECCION = [
   "x_formulario", "x_ambito", "x_tipo_programa", "x_estado", "x_ot_id", "x_ficha_hito_id", "x_inspector_hys_id",
   "x_hito_id", // project.milestone: solo envíos viejos que siguen en la cola (desde 18/10/2026 se usa x_ficha_hito_id)
+  "x_lugar", // F03/F04 (Fábrica u Oficina)
   "x_tc_nombre", "x_tc_firma", "x_firma_inspector", "x_tc_observaciones", "x_fecha_hora_control",
   "x_gps_lat", "x_gps_lon", "x_gps_precision_m", "x_gps_fecha", "x_gps_estado",
   "x_origen", "x_idempotency_key", "x_cargado_por", "x_linea_ids"
 ];
 export const CAMPOS_PENDIENTES_EN_ODOO = [];
-export const CAMPOS_LINEA = ["x_name", "x_bloque", "x_item_codigo", "x_secuencia", "x_respuesta", "x_criticidad", "x_foto", "x_comentario"];
+export const CAMPOS_LINEA = ["x_name", "x_bloque", "x_item_codigo", "x_secuencia", "x_respuesta", "x_criticidad", "x_foto", "x_comentario", "x_sector"];
+const FORMULARIOS_INSPECCION = ["F02", "F03", "F04"];
+const TIPOS_PLANTA = { F03: ["recorrida_semanal", "fuera_programa"], F04: ["check_mensual", "fuera_programa"] };
 const CAMPOS_FECHA = ["x_fecha_hora_control", "x_gps_fecha"];
 
 const valoresDe = (campo) => SELECCION[campo].map(([v]) => v);
@@ -409,7 +429,13 @@ export function validarInspeccion(vals) {
   const e = [];
   const mal = (campo, mensaje) => e.push({ campo, mensaje });
   for (const k of Object.keys(vals)) if (!CAMPOS_INSPECCION.includes(k)) mal(k, "Campo que no está en x_hys_inspeccion");
-  if (vals.x_formulario !== "F02") mal("x_formulario", "Tiene que ser F02");
+  const planta = vals.x_formulario === "F03" || vals.x_formulario === "F04";
+  if (!FORMULARIOS_INSPECCION.includes(vals.x_formulario)) mal("x_formulario", "Formulario no admitido (F02, F03 o F04)");
+  if (planta) {
+    if (!TIPOS_PLANTA[vals.x_formulario].includes(vals.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
+    if (vals.x_ambito !== vals.x_lugar || (vals.x_formulario === "F03" && vals.x_lugar !== "fabrica")) mal("x_lugar", "Lugar inválido");
+    if (!vals.x_firma_inspector) mal("x_firma_inspector", "Falta la firma del inspector");
+  }
   if (!valoresDe("x_ambito").includes(vals.x_ambito)) mal("x_ambito", "Ámbito inválido");
   if (!valoresDe("x_tipo_programa").includes(vals.x_tipo_programa)) mal("x_tipo_programa", "Tipo inválido");
   if (vals.x_ambito === "obra" && !Number.isInteger(vals.x_ot_id)) mal("x_ot_id", "Falta la OT (obligatoria si el ámbito es Obra)");
@@ -433,7 +459,9 @@ export function validarInspeccion(vals) {
     if (l.x_respuesta === "no") {
       if (!valoresDe("x_criticidad").includes(l.x_criticidad)) mal(`x_linea_ids[${i}].x_criticidad`, `Falta la gravedad: ${l.x_name}`);
       if (!l.x_foto) mal(`x_linea_ids[${i}].x_foto`, `Falta la foto: ${l.x_name}`);
+      if (vals.x_formulario === "F03" && !l.x_sector) mal(`x_linea_ids[${i}].x_sector`, `Falta el sector: ${l.x_name}`);
     }
+    if (planta && !l.x_item_codigo) mal(`x_linea_ids[${i}].x_item_codigo`, `Ítem sin código: ${l.x_name}`);
   });
   return e;
 }

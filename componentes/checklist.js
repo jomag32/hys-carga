@@ -16,7 +16,7 @@ export const ACCION_INMEDIATA = { critico: "Se detiene la tarea", mayor: "Se cor
 export const SECTORES_FABRICA = [
   ["corte_laser", "Corte Láser"], ["corte_plegado", "Corte y Plegado"], ["conformado", "Conformado"],
   ["estructura_soldadura", "Estructura y Soldadura"], ["carpinteria", "Carpintería Metálica"],
-  ["pintura", "Pintura"], ["aluminio", "Aluminio"], ["recepcion_deposito", "Recepción y Depósito"]
+  ["pintura", "Pintura"], ["aluminio", "Aluminio"], ["recepcion_deposito", "Depósito Central"] // = «Depósito Central» de F08 (decisión 25/10/2026)
 ];
 
 /** Dibuja los ítems. d.respuestas[item.id] = {respuesta, criticidad, foto, comentario, sector, justificacion_na} */

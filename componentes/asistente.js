@@ -183,6 +183,7 @@ export async function montarAsistente(cont, def) {
         ? h("div", { class: "resultado prueba", id: "resultado" }, h("p", { class: "grande" }, `💾 ${TEXTO_PRUEBA}`),
           h("p", {}, `${env.respuesta?.name || ""}`), h("p", { class: "ayuda" }, "Los datos quedaron en este celular. No cuentan como cargados en Odoo."))
         : h("div", { class: "resultado ok", id: "resultado" }, h("p", { class: "grande" }, "✅ Enviado a Odoo"), h("p", {}, `${env.respuesta.name}`),
+          env.respuesta.aviso ? aviso(env.respuesta.aviso, "alerta") : "",
           env.formulario === "F08" ? h("p", {}, botonPdfAts(env, { clase: "btn primario" })) : ""))
       : env?.estado === "rechazado"
         ? h("div", { class: "resultado error", id: "resultado" }, h("p", { class: "grande" }, "⛔ Rechazado"), h("p", {}, env.error))

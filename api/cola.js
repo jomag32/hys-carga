@@ -21,12 +21,13 @@ import { leerSesion } from "../componentes/sesion.js";
 const CLAVE_LS = "hys_cola";
 
 // ---------------------------------------------------------------- modo prueba (18/10/2026 21:19, pedido de Jorge)
-// En producción F01 (POST /api/v1/fichas, 18/10/2026 22:12) y F02 (POST /api/v1/inspecciones) llegan a Odoo. F03–F08 se guardan
+// En producción F01 (POST /api/v1/fichas, 18/10/2026 22:12), F02 y F03 (POST /api/v1/inspecciones, F03 desde la fase 1
+// del 25/10/2026) y F08 llegan a Odoo. F04–F07 se guardan
 // en este celular (api/odoo.js modo MOCK: localStorage "hys_mock_db_v2") y NO llegan a Odoo.
 export const TEXTO_PRUEBA = "Guardado solo en el celular (modo prueba) — no llega a Odoo";
 export const ETIQUETA_PRUEBA = "Modo prueba · no llega a Odoo";
 /** ¿Este formulario llega a Odoo de verdad? F01 y F02 con el backend real. */
-export const formularioConectado = (cod) => ["F01", "F02", "F08"].includes(cod) && CONFIG.MODO_ENVIO === "backend";
+export const formularioConectado = (cod) => ["F01", "F02", "F03", "F08"].includes(cod) && CONFIG.MODO_ENVIO === "backend";
 /** ¿Este envío es de modo prueba? «crear»/«escribir» van siempre al guardado local (no hay endpoint en el
  *  backend), también los guardados con versiones anteriores que no traían la marca simulado. Solo es real
  *  un «enviar» al backend que respondió sin simulado. */
@@ -139,9 +140,18 @@ async function vuelta() {
         break;
       }
       // Rechazo de validación (4xx): no se reintenta solo; se muestra el motivo.
-      await actualizar(e.idempotency_key, { estado: "rechazado", error: err.message, intentos: e.intentos + 1 });
+      await actualizar(e.idempotency_key, { estado: "rechazado", error: motivoRechazo(err), intentos: e.intentos + 1 });
     }
   }
+}
+
+/** Texto del rechazo: 409 = ya existe / choque; 422 = datos que faltan o no valen (se corrige y se vuelve a cargar); 403 = sin permiso. */
+export function motivoRechazo(err) {
+  const m = err?.message || "Rechazado";
+  if (err?.estado === 409) return `Ya existe un registro igual en Odoo: ${m}`;
+  if (err?.estado === 422) return `Odoo no lo aceptó (faltan datos o no son válidos): ${m}. Corregí y volvé a cargarlo.`;
+  if (err?.estado === 403) return `Sin permiso: ${m}`;
+  return m;
 }
 
 async function actualizar(clave, cambio) {
