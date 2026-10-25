@@ -20,7 +20,7 @@ const CAMPOS = {
 const CONFIG = { id: 1, x_jefe_produccion_id: [31, "Jefe de Producción Ejemplo"], x_validador_fabrica_id: [32, "Dirección de Fábrica Ejemplo"],
   x_coo_id: [33, "COO Ejemplo"], x_f03_dia_vence: "vie", x_f04_dia_vence: 7 };
 
-function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config } = {}) {
+function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config, sectores = null, camposLinea = null } = {}) {
   const db = registros.map((r) => ({ ...r }));
   let sig = Math.max(0, ...db.map((r) => r.id)) + 1;
   const llamadas = [];
@@ -35,7 +35,8 @@ function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig
   };
   async function ejecutar(modelo, metodo, args = [], kwargs = {}) {
     llamadas.push({ modelo, metodo, args, kwargs });
-    if (metodo === "fields_get") return modelo === "x_hys_config" ? camposConfig : CAMPOS[modelo];
+    if (metodo === "fields_get") return modelo === "x_hys_config" ? camposConfig : modelo === "x_hys_inspeccion_linea" && camposLinea ? camposLinea : CAMPOS[modelo];
+    if (modelo === "x_hys_sector_resp") { if (!sectores) throw new Error("Object x_hys_sector_resp doesn't exist"); return sectores; }
     if (modelo === "x_hys_config") return [config];
     if (modelo === "x_hys_item_plantilla") {
       if (items === "falla") throw new Error("sin red");
@@ -256,9 +257,77 @@ test("catálogo F03: ítems, sectores (Depósito Central), TC precargada editabl
   const c = await p.catalogo("F03");
   assert.equal(c.items.length, 18); assert.equal(c.fuente_items, "respaldo");
   assert.deepEqual(c.sectores.at(-1), ["recepcion_deposito", "Depósito Central"]);
-  assert.deepEqual(c.toma_conocimiento, { nombre: "Jefe de Producción Ejemplo", editable: true });
+  assert.deepEqual(c.toma_conocimiento, { nombre: "Jefe de Producción Ejemplo", editable: true, aviso: null });
   assert.equal(c.periodo.realizada, true); assert.match(c.periodo.aviso, /fuera de programa/);
   assert.equal(c.periodo.vence, "2026-10-24 02:59:00");
   assert.equal((await p.catalogo("F04", "oficina")).items.length, 8);
   assert.equal(await p.catalogo("F05"), null);
+});
+
+// ---- Roles vacíos (todavía sin usuarios) y responsables por sector
+const VACIA = { id: 1, x_jefe_produccion_id: false, x_validador_fabrica_id: false, x_coo_id: false, x_f03_dia_vence: "vie", x_f04_dia_vence: 7 };
+
+test("roles vacíos: catálogo sin TC precargada (texto libre) con aviso, sin validador con aviso", async () => {
+  const f = odooFalso({ config: VACIA });
+  const p = crearPlanta(() => f.cliente, { ahora: () => Date.parse("2026-10-21T12:00:00Z") });
+  const c = await p.catalogo("F03");
+  assert.equal(c.toma_conocimiento.nombre, null);
+  assert.equal(c.toma_conocimiento.editable, true);
+  assert.match(c.toma_conocimiento.aviso, /Jefe de Producción/);
+  assert.equal(c.validador, null);
+  assert.equal(c.avisos.length, 2);
+  assert.deepEqual(c.responsables_sector.pintura, { toma_conocimiento: { nombre: null, fuente: null }, responsable: { id: null, nombre: null, fuente: null } });
+});
+
+test("roles vacíos: la recorrida se guarda sin x_validador_id, pendiente, y la respuesta avisa (sin error)", async () => {
+  const { recibir, db } = armar({ config: VACIA });
+  const NO = { x_respuesta: "no", x_criticidad: "mayor", x_foto: "AAAA", x_sector: "pintura" };
+  const r = await recibir(f03({ mod: { "F03-01": NO } }));
+  assert.equal(r.estado, 201);
+  const ins = db.find((x) => x.x_formulario === "F03");
+  assert.equal(ins.x_validador_id, undefined);
+  assert.equal(ins.x_validacion_estado, "pendiente");
+  assert.equal(ins.x_tc_nombre, "Reemplazo Ejemplo");
+  assert.equal(r.cuerpo.sin_validador, true);
+  assert.match(r.cuerpo.aviso, /Dirección de Fábrica/);
+  assert.deepEqual(r.cuerpo.responsables_sector, { pintura: null });
+});
+
+test("F04 Oficina sin COO: se guarda sin validador y avisa", async () => {
+  const { recibir } = armar({ config: VACIA });
+  const r = await recibir(f04({ lugar: "oficina" }));
+  assert.equal(r.estado, 201);
+  assert.match(r.cuerpo.aviso, /COO/);
+});
+
+test("responsables por sector: se usan si están; si no, Jefe de Producción; la línea lleva x_responsable_id si el campo existe", async () => {
+  const sectores = [{ id: 1, x_sector: "pintura", x_tc_usuario_id: false, x_tc_nombre: "Encargado Pintura Ejemplo", x_responsable_id: [41, "Responsable Pintura Ejemplo"] },
+    { id: 2, x_sector: "aluminio", x_tc_usuario_id: false, x_tc_nombre: false, x_responsable_id: false }];
+  const f = odooFalso({ sectores });
+  const p = crearPlanta(() => f.cliente, { ahora: () => Date.parse("2026-10-21T12:00:00Z") });
+  const c = await p.catalogo("F03");
+  assert.equal(c.responsables_sector.pintura.toma_conocimiento.nombre, "Encargado Pintura Ejemplo");
+  assert.equal(c.responsables_sector.pintura.responsable.id, 41);
+  assert.equal(c.responsables_sector.aluminio.responsable.fuente, "jefe_produccion");
+  assert.equal(c.toma_conocimiento.nombre, "Jefe de Producción Ejemplo");
+
+  const { recibir, db } = armar({ sectores, camposLinea: { ...CAMPOS.x_hys_inspeccion_linea, x_responsable_id: {} } });
+  const NO = { x_respuesta: "no", x_criticidad: "mayor", x_foto: "AAAA" };
+  const r = await recibir(f03({ mod: { "F03-01": { ...NO, x_sector: "pintura" }, "F03-02": { ...NO, x_sector: "aluminio" } } }));
+  assert.equal(r.estado, 201);
+  assert.deepEqual(r.cuerpo.responsables_sector, { pintura: "Responsable Pintura Ejemplo", aluminio: "Jefe de Producción Ejemplo" });
+  assert.equal(r.cuerpo.sin_validador, undefined);
+  const ls = db.filter((x) => x.x_respuesta === "no");
+  const ins = db.find((x) => x.x_formulario === "F03");
+  const lin = ls.length ? ls : ins.x_linea_ids.map(([, , l]) => l).filter((l) => l.x_respuesta === "no");
+  assert.deepEqual(lin.map((l) => l.x_responsable_id).sort(), [31, 41]);
+});
+
+test("sin el campo x_responsable_id en la línea: no se manda (no rompe)", async () => {
+  const sectores = [{ id: 1, x_sector: "pintura", x_tc_usuario_id: false, x_tc_nombre: false, x_responsable_id: [41, "Responsable Pintura Ejemplo"] }];
+  const { recibir, db } = armar({ sectores });
+  const r = await recibir(f03({ mod: { "F03-01": { x_respuesta: "no", x_criticidad: "mayor", x_foto: "AAAA", x_sector: "pintura" } } }));
+  assert.equal(r.estado, 201);
+  const ins = db.find((x) => x.x_formulario === "F03");
+  assert.ok(ins.x_linea_ids.every(([, , l]) => l.x_responsable_id === undefined));
 });

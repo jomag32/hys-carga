@@ -3,7 +3,7 @@
 import { validarYFiltrar } from "./validar.js";
 import { ErrorOdoo } from "./odoo.js";
 import { textoInspector } from "./catalogos.js";
-import { crearPlanta, reglasDe, periodoDe } from "./planta.js";
+import { crearPlanta, reglasDe, periodoDe, avisoSinValidador } from "./planta.js";
 
 const CAMPOS_MS = 10 * 60 * 1000;
 const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
@@ -165,7 +165,8 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
       const ctx = cuerpo.contexto || {};
       if (ctx.modalidad && (ci.x_modalidad?.selection || []).some(([v]) => v === ctx.modalidad)) pon("x_modalidad", ctx.modalidad);
       const reglas = reglasDe(vals.x_formulario, vals.x_lugar);
-      let cfgPlanta = null;
+      let cfgPlanta = null, avisosPlanta = [];
+      const responsablesPlanta = {};
       if (reglas) {
         // ---- Rama «planta» (F03/F04): ítems del catálogo, validador de config, sin obra.
         for (const k of ["x_ot_id", "x_hito_id", "x_ficha_hito_id"]) delete vals[k];
@@ -183,6 +184,17 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
         if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores, descartados });
         const validador = reglas.lugar === "oficina" ? cfgP.coo : cfgP.validador_fabrica;
         if (validador && ci.x_validador_id) vals.x_validador_id = validador.id;
+        // Sin validador elegido en Odoo: se guarda igual (sin x_validador_id) y se avisa; R-VAL-1 no asigna actividad.
+        avisosPlanta = validador ? [] : [avisoSinValidador(reglas.lugar)];
+        // Responsable del cambio por sector («No» de F03): el del sector o el Jefe de Producción; solo si el campo existe.
+        if (vals.x_formulario === "F03") {
+          for (const [, , l] of vals.x_linea_ids) {
+            if (l.x_respuesta !== "no" || !l.x_sector) continue;
+            const ds = planta.delSector(cfgP, l.x_sector);
+            if (c.linea.x_responsable_id && ds.responsable.id) l.x_responsable_id = ds.responsable.id;
+            responsablesPlanta[l.x_sector] = ds.responsable.nombre;
+          }
+        }
         if (ci.x_validacion_estado) vals.x_validacion_estado = "pendiente";
         pon("x_modalidad", "presencial");
         if (ci.x_presencial_obligatoria && !ci.x_presencial_obligatoria.readonly) vals.x_presencial_obligatoria = false;
@@ -232,6 +244,8 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
             }
           }
           extra.vence = vals.x_fecha_vencimiento;
+          if (avisosPlanta.length) { extra.sin_validador = true; extra.aviso = [extra.aviso, ...avisosPlanta].filter(Boolean).join(" "); }
+          if (Object.keys(responsablesPlanta).length) extra.responsables_sector = responsablesPlanta;
           return { idProgramada, extra };
         };
         if (soloValidar) { const d = await decidir(); return { estado: 200, cuerpo: { simulado: true, vals, descartados, ...d.extra } }; }

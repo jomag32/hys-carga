@@ -42,7 +42,10 @@ export function pasoTomaConocimientoPrecargada(etiqueta, textoAyuda) {
     titulo: "Toma de conocimiento",
     dibujar: (d, ctx) => {
       if (d.tc_nombre === undefined) d.tc_nombre = ctx.catalogo?.toma_conocimiento?.nombre || "";
+      const tc = ctx.catalogo?.toma_conocimiento;
       return [
+        tc?.aviso ? aviso(tc.aviso, "alerta") : "",
+        ctx.catalogo?.avisos?.filter((a) => a !== tc?.aviso).map((a) => aviso(a, "info")) || "",
         campoTexto(d, "tc_nombre", etiqueta, { requerido: true, autocomplete: "off", ayuda: "Si firma un reemplazo, cambiá el nombre." }),
         campoFirma(d, "tc_firma", "Firma «tomé conocimiento»", { requerido: true }),
         campoArea(d, "tc_obs", "Observaciones (opcional)", { filas: 2 }),

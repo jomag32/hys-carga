@@ -84,6 +84,10 @@ export const ITEMS_RESPALDO = {
 };
 
 // ---------------------------------------------------------------- lectura de Odoo (MIA, solo lectura)
+export const AVISO_SIN_JEFE = "Todavía no hay Jefe de Producción elegido en Odoo: escribí a mano quién toma conocimiento.";
+export const avisoSinValidador = (lugar) => lugar === "oficina"
+  ? "Todavía no hay COO elegido en Odoo: la inspección se guarda sin validador (HyS lo asigna después)."
+  : "Todavía no hay Dirección de Fábrica elegida en Odoo: la recorrida se guarda sin validador (HyS lo asigna después).";
 const CAMPOS_CONFIG = ["x_jefe_produccion_id", "x_validador_fabrica_id", "x_coo_id", "x_f03_dia_vence", "x_f04_dia_vence"];
 const m2o = (v) => (Array.isArray(v) ? { id: v[0], nombre: v[1] } : null);
 
@@ -95,16 +99,25 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
   /** x_hys_config (un registro): solo los campos que existen (fields_get), así no falla antes del paso 1. */
   async function config() {
     if (cfg.v && ahora() < cfg.hasta) return cfg.v;
-    let v = { jefe_produccion: null, validador_fabrica: null, coo: null, dia_vence: "vie", dia_mes: 7 };
+    let v = { jefe_produccion: null, validador_fabrica: null, coo: null, dia_vence: "vie", dia_mes: 7, sectores: {} };
     try {
       const fg = await ej("x_hys_config", "fields_get", [], { attributes: ["type"] });
       const campos = CAMPOS_CONFIG.filter((k) => fg[k]);
       if (campos.length) {
         const r = (await ej("x_hys_config", "search_read", [[]], { fields: campos, limit: 1, order: "id" }))[0] || {};
         v = { jefe_produccion: m2o(r.x_jefe_produccion_id), validador_fabrica: m2o(r.x_validador_fabrica_id), coo: m2o(r.x_coo_id),
-          dia_vence: DIAS.includes(r.x_f03_dia_vence) ? r.x_f03_dia_vence : "vie", dia_mes: Number(r.x_f04_dia_vence) || 7 };
+          dia_vence: DIAS.includes(r.x_f03_dia_vence) ? r.x_f03_dia_vence : "vie", dia_mes: Number(r.x_f04_dia_vence) || 7, sectores: {} };
       }
     } catch { /* sin config: valores por defecto (viernes / día 7) */ }
+    // Responsables por sector (x_hys_sector_resp, opcional y vacío al principio): si no existe o falla, se usa el Jefe de Producción.
+    try {
+      const regs = await ej("x_hys_sector_resp", "search_read", [[]], { fields: ["x_sector", "x_tc_usuario_id", "x_tc_nombre", "x_responsable_id"], order: "id" });
+      for (const r of regs || []) {
+        if (!r.x_sector) continue;
+        const u = m2o(r.x_tc_usuario_id);
+        v.sectores[r.x_sector] = { tc: u?.nombre || (r.x_tc_nombre || "").trim() || null, responsable: m2o(r.x_responsable_id) };
+      }
+    } catch { /* modelo todavía no creado: sin relaciones por sector */ }
     cfg = { v, hasta: ahora() + CACHE_MS };
     return v;
   }
@@ -146,16 +159,33 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
       estado = { realizada: regs.some((r) => r.x_estado === "realizada"), programada: regs.some((r) => r.x_estado === "programada") };
     } catch { /* sin dato: el celular no muestra el aviso */ }
     const tc = reglas.lugar === "fabrica" ? c.jefe_produccion?.nombre || null : null;
+    const validador = reglas.lugar === "oficina" ? c.coo : c.validador_fabrica;
+    const avisos = [];
+    if (reglas.lugar === "fabrica" && !tc) avisos.push(AVISO_SIN_JEFE);
+    if (!validador) avisos.push(avisoSinValidador(reglas.lugar));
     return { formulario, lugar: reglas.lugar, plantilla: reglas.plantilla, fuente_items: its.fuente,
       items: its.lista.map(({ codigo, nombre, bloque, secuencia, critico, admite_na }) => ({ codigo, nombre, bloque, secuencia, critico, admite_na })),
       sectores: formulario === "F03" ? SECTORES_FABRICA : [],
-      toma_conocimiento: { nombre: tc, editable: true },
+      responsables_sector: formulario === "F03" ? Object.fromEntries(SECTORES_FABRICA.map(([k]) => [k, delSector(c, k)])) : {},
+      toma_conocimiento: { nombre: tc, editable: true, aviso: tc || reglas.lugar !== "fabrica" ? null : AVISO_SIN_JEFE },
+      validador: validador ? { nombre: validador.nombre } : null,
+      avisos,
       periodo: { tipo: reglas.periodo, ...per, ...estado,
         aviso: estado.realizada ? (reglas.periodo === "semana"
           ? "Ya hay una recorrida realizada esta semana: si cargás otra, se registra como «fuera de programa»."
           : "Ya hay un check realizado este mes en este lugar: si cargás otro, se registra como «fuera de programa».") : null } };
   }
 
+  /** Quién toma conocimiento y quién es responsable del cambio en un sector: el del sector, o el Jefe de Producción, o nadie. */
+  function delSector(c, sector) {
+    const s = c.sectores?.[sector] || {};
+    const jefe = c.jefe_produccion;
+    return {
+      toma_conocimiento: s.tc ? { nombre: s.tc, fuente: "sector" } : jefe ? { nombre: jefe.nombre, fuente: "jefe_produccion" } : { nombre: null, fuente: null },
+      responsable: s.responsable ? { ...s.responsable, fuente: "sector" } : jefe ? { ...jefe, fuente: "jefe_produccion" } : { id: null, nombre: null, fuente: null },
+    };
+  }
+
   const olvidar = () => { cfg = { v: null, hasta: 0 }; items.clear(); };
-  return { config, leerItems, delPeriodo, catalogo, olvidar };
+  return { config, leerItems, delPeriodo, catalogo, delSector, olvidar };
 }
