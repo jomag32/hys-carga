@@ -47,10 +47,77 @@ export function armarEvento(e, { recepcion = new Date(), idempotencyKey } = {}) 
     x_aviso_telefonico: lesion ? true : e.aviso_telefonico === true,
     x_aviso_hora: lesion && e.aviso_hora ? utc(e.aviso_hora) : false,
     x_aviso_a: e.aviso_a || false,
-    x_que_paso: e.que_paso, x_testigos: e.testigos || false, x_foto: e.foto || false,
+    x_que_paso: e.que_paso, x_testigos: e.testigos || false, x_foto: typeof e.foto === "string" && e.foto.startsWith("data:") ? e.foto.slice(e.foto.indexOf(",") + 1) : e.foto || false,
     x_reportado_por: e.reportado_por, x_estado: "registrado",
     x_fecha_recepcion: utc(recepcion),
     x_cargado_en_plazo: recepcion - new Date(e.fecha_hora) <= PLAZO_HORAS * 3600e3,
     x_idempotency_key: idempotencyKey || false
   };
+}
+
+// ---------------------------------------------------------------- servicio (POST /api/v1/eventos, GET /api/v1/eventos/catalogo)
+import { ErrorEntrada } from "./inspecciones.js";
+import { textoInspector } from "./catalogos.js";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MENSAJES = { tipo: "Elegí el tipo de evento", fecha_hora: "Falta la fecha y hora", fecha_hora_futura: "La fecha no puede ser futura",
+  ambito: "Elegí dónde pasó (Obra, sector de Fábrica u Oficina)", ot_id: "Falta la OT", sector: "Elegí un sector de Fábrica de la lista",
+  que_paso: "Contá qué pasó", reportado_por: "Falta quién lo reporta", lesion_parte: "Elegí la parte lesionada", atencion: "Falta la atención recibida",
+  dias_baja: "Los días de baja tienen que ser 1 o más", aviso_telefonico: "Con lesión, el aviso telefónico a HyS es obligatorio",
+  aviso_hora: "Falta la hora del aviso (no puede ser anterior al evento)" };
+const GPS_EST = ["ok", "denegado", "sin_posicion", "no_disponible"];
+
+/** Campos GPS/control comunes (vienen del celular en cuerpo.control). */
+export function camposGps(ctrl = {}) {
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : false);
+  const f = (s) => { const d = new Date(s); return s && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 19).replace("T", " ") : false; };
+  return { x_gps_lat: num(ctrl.gps_lat), x_gps_lon: num(ctrl.gps_lon), x_gps_precision_m: num(ctrl.gps_precision_m), x_gps_fecha: f(ctrl.gps_fecha),
+    x_gps_estado: GPS_EST.includes(ctrl.gps_estado) ? ctrl.gps_estado : "no_disponible", x_fecha_hora_control: f(ctrl.fecha_hora_control) };
+}
+
+export function crearEventos(cliente, { ahora = () => new Date() } = {}) {
+  const ej = (...a) => cliente().ejecutar(...a);
+  const porClave = new Map(); const enCurso = new Map();
+  let empleados = null, hasta = 0;
+  let cola = Promise.resolve();
+  const enSerie = (fn) => { const p = cola.then(fn, fn); cola = p.catch(() => {}); return p; };
+  async function catalogo() {
+    if (!empleados || Date.now() > hasta) {
+      const r = await ej("hr.employee", "search_read", [[["active", "=", true]]], { fields: ["id", "name"], order: "name" });
+      empleados = r.map((e) => ({ id: e.id, nombre: e.name })); hasta = Date.now() + 5 * 60e3;
+    }
+    return { empleados, sectores: SECTORES_FABRICA, plazo_horas: PLAZO_HORAS };
+  }
+  const leerInsp = async (id) => (await ej("x_hys_inspector", "search_read", [[["id", "=", id], ["x_active", "=", true]]],
+    { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], limit: 1 }))[0] || null;
+  const resp = async (id, extra = {}) => {
+    const r = (await ej("x_hys_evento", "read", [[id]], { fields: ["x_name", "x_cargado_en_plazo"] }))[0] || {};
+    return { odoo_model: "x_hys_evento", odoo_id: id, id, name: r.x_name || null, cargado_en_plazo: !!r.x_cargado_en_plazo, ...extra };
+  };
+  async function recibir(cuerpo, { sesion = null } = {}) {
+    if (!Number.isInteger(sesion?.inspector_id)) throw new ErrorEntrada(401, "Tu sesión venció: volvé a ingresar.");
+    const clave = cuerpo?.idempotency_key;
+    if (!UUID.test(clave || "")) throw new ErrorEntrada(422, "Clave de envío inválida");
+    if (porClave.has(clave)) return { estado: 200, cuerpo: await resp(porClave.get(clave), { repetido: true }) };
+    if (enCurso.has(clave)) return enCurso.get(clave);
+    const p = (async () => {
+      const d = cuerpo?.datos || {};
+      const errores = validarEvento(d, ahora());
+      if (errores.length) throw new ErrorEntrada(422, errores.map((e) => MENSAJES[e] || e).join(" · "), { errores });
+      const cargador = await leerInsp(sesion.inspector_id);
+      if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
+      return enSerie(async () => {
+        const ya = (await ej("x_hys_evento", "search_read", [[["x_idempotency_key", "=", clave]]], { fields: ["id"], limit: 1 }))[0];
+        if (ya) { porClave.set(clave, ya.id); return { estado: 200, cuerpo: await resp(ya.id, { repetido: true }) }; }
+        const txt = [textoInspector(cargador), cargador.x_rol === "encargado" ? "Encargado de sector" : "Inspector HyS", "hys-carga"].join(" · ").slice(0, 250);
+        const vals = { x_name: "/", ...armarEvento(d, { recepcion: ahora(), idempotencyKey: clave }), ...camposGps(cuerpo.control), x_cargado_por: txt };
+        const r = await ej("x_hys_evento", "create", [[vals]]);
+        const id = Array.isArray(r) ? r[0] : r;
+        porClave.set(clave, id);
+        return { estado: 201, cuerpo: await resp(id) };
+      });
+    })().finally(() => enCurso.delete(clave));
+    enCurso.set(clave, p);
+    return p;
+  }
+  return { catalogo, recibir };
 }

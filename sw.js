@@ -12,7 +12,7 @@
 //   Por eso todo se pide a la red como «archivo?v=VERSION» (otra clave para la CDN → sale del servidor,
 //   ya nuevo) y se guarda en la copia con la clave sin «?v=». Así la copia de una versión nunca mezcla
 //   archivos de otra (antes, con cache:"reload", la CDN podía colar módulos viejos en la copia nueva).
-const VERSION = "2026-10-25.4";
+const VERSION = "2026-10-25.5";
 const CACHE = `hys-carga-cascara-${VERSION}`;
 const RED_MS = 4000;
 
@@ -24,7 +24,7 @@ const CASCARA = [
   "componentes/selector-turno.js", "componentes/sesion.js", "componentes/util.js", "componentes/version.js",
   "vistas/_inspeccion-planta.js", "vistas/f01-ficha-riesgo.js", "vistas/f02-inspeccion-obra.js", "vistas/f03-recorrida-fabrica.js",
   "vistas/f04-check-instalaciones.js", "vistas/f05-evento.js", "vistas/f06-vencimiento-legal.js", "vistas/f07-cierre-desvio.js",
-  "vistas/f08-ats-turno.js",
+  "vistas/f08-ats-turno.js", "vistas/vencimientos.js",
   "datos/obras.json",
   "iconos/icono-192.png", "iconos/icono-512.png", "iconos/icono-maskable-192.png", "iconos/icono-maskable-512.png",
   "iconos/apple-touch-icon.png", "iconos/favicon-32.png"

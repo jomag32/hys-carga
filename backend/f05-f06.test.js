@@ -42,3 +42,45 @@ test("F06 semáforo y alertas", () => {
   assert.equal(tocaAlerta({ x_estado: "vigente", x_fecha_vence: "2026-11-24" }, "2026-10-25"), true);
   assert.equal(tocaAlerta({ x_estado: "vigente", x_fecha_vence: "2026-11-23" }, "2026-10-25"), false);
 });
+
+import { crearEventos } from "./eventos.js";
+import { crearVencimientos } from "./vencimientos.js";
+function falso() {
+  const db = { x_hys_evento: [], x_hys_vencimiento_carga: [], x_hys_control_legal: [{ id: 5, x_name: "Control Ejemplo", x_estado: "sin_estado" }],
+    x_hys_inspector: [{ id: 1, x_name: "Inspector Ejemplo", x_rol: "inspector", x_active: true }, { id: 2, x_name: "Encargado Ejemplo", x_rol: "encargado", x_active: true }],
+    "hr.employee": [{ id: 9, name: "Empleado Ejemplo", active: true }] };
+  const ok = (r, [c, op, v]) => (op === "=" ? r[c] === v : true);
+  return { db, cli: () => ({ async ejecutar(mo, me, args = [], kw = {}) {
+    const t = db[mo];
+    if (me === "search_read") return t.filter((r) => (args[0] || []).every((d) => ok(r, d))).slice(0, kw.limit || 999);
+    if (me === "read") return t.filter((r) => args[0].includes(r.id));
+    if (me === "create") { const id = t.length + 1; t.push({ id, ...args[0][0], x_name: `N-${id}` }); return [id]; }
+    if (me === "write") { for (const r of t) if (args[0].includes(r.id)) Object.assign(r, args[1]); return true; }
+    throw new Error(me);
+  } }) };
+}
+const K1 = "11111111-1111-4111-8111-111111111111";
+test("POST eventos: crea, idempotente, 422 sin aviso", async () => {
+  const { db, cli } = falso();
+  const ev = crearEventos(cli, { ahora: () => AHORA });
+  const r = await ev.recibir({ idempotency_key: K1, datos: base, control: { gps_estado: "denegado" } }, { sesion: { inspector_id: 2 } });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_evento[0].x_aviso_telefonico, true);
+  assert.match(db.x_hys_evento[0].x_cargado_por, /Encargado/);
+  assert.equal((await ev.recibir({ idempotency_key: K1, datos: base }, { sesion: { inspector_id: 2 } })).estado, 200);
+  await assert.rejects(ev.recibir({ idempotency_key: "21111111-1111-4111-8111-111111111111", datos: { ...base, aviso_telefonico: false } }, { sesion: { inspector_id: 1 } }), (e) => e.estado === 422);
+  assert.equal((await ev.catalogo()).empleados[0].nombre, "Empleado Ejemplo");
+});
+test("vencimientos: listar para todos, cargar solo HyS y actualiza el control", async () => {
+  const { db, cli } = falso();
+  const v = crearVencimientos(cli, { ahora: () => AHORA });
+  assert.equal((await v.listar()).controles[0].color, "rojo");
+  const datos = { control_id: 5, estado: "vigente", fecha_servicio: "2026-10-01", fecha_vence: "2027-10-01", protocolo: "data:application/pdf;base64,QUJD", protocolo_nombre: "p.pdf" };
+  await assert.rejects(v.recibir({ idempotency_key: K1, datos }, { sesion: { inspector_id: 2 } }), (e) => e.estado === 403);
+  const r = await v.recibir({ idempotency_key: K1, datos }, { sesion: { inspector_id: 1 } });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_vencimiento_carga[0].x_protocolo, "QUJD");
+  assert.equal(db.x_hys_control_legal[0].x_estado, "vigente");
+  assert.equal(db.x_hys_control_legal[0].x_ultima_carga_id, 1);
+  assert.equal((await v.listar()).controles[0].color, "verde");
+});

@@ -30,6 +30,8 @@ import { crearInspecciones, ErrorEntrada } from "./inspecciones.js";
 import { crearIngreso, ErrorIngreso } from "./ingreso.js";
 import { crearAltaFichas, ETAPAS_FICHA } from "./fichas-alta.js";
 import { crearAts } from "./ats.js";
+import { crearEventos } from "./eventos.js";
+import { crearVencimientos } from "./vencimientos.js";
 
 const PORT = Number(process.env.PORT) || 10000;
 const ETAPAS = (process.env.OBRAS_ETAPAS || "EN PROGRESO,PAUSADO").split(",").map((s) => s.trim()).filter(Boolean);
@@ -48,6 +50,8 @@ const catalogos = crearCatalogos(cliente);
 const inspecciones = crearInspecciones(cliente, catalogos);
 const altaFichas = crearAltaFichas(cliente, catalogos);
 const ats = crearAts(cliente, { catalogos });
+const eventos = crearEventos(cliente);
+const vencimientos = crearVencimientos(cliente);
 // Firma de sesiones: HYS_SESSION_SECRET si está; si no, la credencial de servicio (estable entre reinicios).
 const ingreso = crearIngreso({ catalogos, secreto: process.env.HYS_SESSION_SECRET || process.env.ODOO_PASSWORD || null });
 
@@ -229,6 +233,34 @@ const servidor = http.createServer(async (req, res) => {
         return responderError(res, e, "ats");
       }
     }
+    // F05 · evento (crean todos los que ingresan; en Odoo lo leen solo HyS/JP/Desarrollo/Lectura F05)
+    if (ruta === "/api/v1/eventos/catalogo" && req.method === "GET") {
+      if (!sesionDe(req)) return sinSesion(res);
+      try { return json(res, 200, await eventos.catalogo()); } catch (e) { return responderError(res, e, "eventos-catalogo"); }
+    }
+    if (ruta === "/api/v1/eventos" && req.method === "POST") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
+        const r = await eventos.recibir(await leerCuerpo(req), { sesion });
+        log(`eventos: ${r.estado === 201 ? "creado" : "repetido"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) { if (e instanceof ErrorEntrada && e.estado === 413) req.resume(); return responderError(res, e, "eventos"); }
+    }
+    // F06 · vencimientos legales (ver: todos los que ingresan; cargar: inspectores HyS)
+    if (ruta === "/api/v1/vencimientos" && req.method === "GET") {
+      if (!sesionDe(req)) return sinSesion(res);
+      try { return json(res, 200, await vencimientos.listar()); } catch (e) { return responderError(res, e, "vencimientos-listar"); }
+    }
+    if (ruta === "/api/v1/vencimientos" && req.method === "POST") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
+        const r = await vencimientos.recibir(await leerCuerpo(req), { sesion });
+        log(`vencimientos: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) { if (e instanceof ErrorEntrada && e.estado === 413) req.resume(); return responderError(res, e, "vencimientos"); }
+    }
     if (ruta === "/api/v1/inspectores" && req.method === "GET") {
       try {
         const r = await catalogos.leerInspectores();
@@ -275,7 +307,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf", "GET /api/v1/eventos/catalogo", "POST /api/v1/eventos", "GET /api/v1/vencimientos", "POST /api/v1/vencimientos"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");
