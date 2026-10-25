@@ -17,8 +17,11 @@ import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 /** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
-// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 lo carga HyS; ver vencimientos: todos (#/vencimientos).
-export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05") : FORMULARIOS);
+// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 (cargar y ver #/vencimientos): solo HyS.
+export const ROLES_HYS = ["inspector", "responsable", "desarrollo"];
+export const esHys = (u) => !!u && ROLES_HYS.includes(u.rol_hys || "inspector");
+export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05")
+  : esHys(u) ? FORMULARIOS : FORMULARIOS.filter((f) => f.cod !== "F06"));
 export const FORMULARIOS = [
   { cod: "F01", ruta: "f01", archivo: "f01-ficha-riesgo.js", titulo: "Ficha de Riesgos de Obra", donde: "Inicio de obra", icono: "📋" },
   { cod: "F02", ruta: "f02", archivo: "f02-inspeccion-obra.js", titulo: "Inspección de obra", donde: "Obra", icono: "🦺" },
@@ -49,6 +52,7 @@ async function rutear() {
     if (ruta === "envios") return vistaEnvios();
     // Sin ingreso (obra + usuario de la lista) no se carga nada.
     if (!s.obra || !s.usuario) { location.replace("#/ingresar"); return; }
+    if (ruta === "vencimientos" && !esHys(s.usuario)) { location.replace("#/"); return; }
     if (ruta === "vencimientos") return (await import("./vistas/vencimientos.js")).default(app);
     if (form) {
       const mod = await import(`./vistas/${form.archivo}`);
@@ -73,7 +77,7 @@ function vistaInicio() {
         h("span", { class: "icono", "aria-hidden": "true" }, f.icono),
         h("span", { class: "texto" }, h("b", {}, `${f.cod} · ${f.titulo}`), h("small", {}, f.donde),
           formularioConectado(f.cod) ? "" : h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA))))),
-    h("a", { class: "btn secundario ancho", href: "#/vencimientos", id: "ir-vencimientos" }, "📅 Vencimientos legales (ver estado)"),
+    esHys(leerSesion().usuario) ? h("a", { class: "btn secundario ancho", href: "#/vencimientos", id: "ir-vencimientos" }, "📅 Vencimientos legales (ver estado)") : "",
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"),
     etiquetaVersion());
 }

@@ -1,7 +1,11 @@
 // F06 (Carga de vencimiento legal) → x_hys_vencimiento_carga + actualiza x_hys_control_legal.
-// Decisión de Jorge (25/10/2026): el estado de los vencimientos lo ve TODO el personal (lectura);
-// cargar sigue siendo de HyS. Semáforo y alertas se calculan acá (y en Odoo con acción programada).
+// Ver y cargar: solo HyS (ver abajo). Semáforo y alertas se calculan acá (y en Odoo con acción programada).
 export const ESTADOS_VEN = ["vigente", "vencido", "sin_protocolo"];
+// Decisión de Jorge (25/10/2026 20:48): F06 entero (ver y cargar) es SOLO HyS — los mismos que ven las fichas
+// (HyS responsable / inspector / desarrollo; grupos Odoo 216/218/219). Encargados y otros roles: 403.
+export const ROLES_HYS = ["inspector", "responsable", "desarrollo"];
+export const esRolHys = (rol) => ROLES_HYS.includes(rol || "inspector");
+export const SOLO_HYS = "Los vencimientos legales son solo para HyS.";
 export const DIAS_AVISO = [30, 15, 7, 0]; // alertas antes del vencimiento (propuesta, configurable)
 
 export function validarVencimiento(v, hoy = new Date().toISOString().slice(0, 10)) {
@@ -62,6 +66,13 @@ export function crearVencimientos(cliente, { ahora = () => new Date() } = {}) {
       periodicidad: c.x_periodicidad || null, prioridad: c.x_prioridad || null, estado: c.x_estado || "sin_estado",
       fecha_servicio: c.x_fecha_servicio || null, fecha_vence: c.x_fecha_vence || null, proveedor: c.x_proveedor || "", ...semaforo(c, hoy) })) };
   }
+  /** Sesión de un usuario HyS activo; si no, ErrorEntrada 401/403. */
+  async function autorizar(sesion) {
+    if (!Number.isInteger(sesion?.inspector_id)) throw new ErrorEntrada(401, "Tu sesión venció: volvé a ingresar.");
+    const u = (await ej("x_hys_inspector", "search_read", [[["id", "=", sesion.inspector_id], ["x_active", "=", true]]], { fields: ["id", "x_rol"], limit: 1 }))[0];
+    if (!u || !esRolHys(u.x_rol)) throw new ErrorEntrada(403, SOLO_HYS);
+    return u;
+  }
   async function recibir(cuerpo, { sesion = null } = {}) {
     if (!Number.isInteger(sesion?.inspector_id)) throw new ErrorEntrada(401, "Tu sesión venció: volvé a ingresar.");
     const clave = cuerpo?.idempotency_key;
@@ -69,7 +80,7 @@ export function crearVencimientos(cliente, { ahora = () => new Date() } = {}) {
     const cargador = (await ej("x_hys_inspector", "search_read", [[["id", "=", sesion.inspector_id], ["x_active", "=", true]]],
       { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol"], limit: 1 }))[0];
     if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como activo en Odoo. Avisá a HyS.");
-    if (cargador.x_rol === "encargado") throw new ErrorEntrada(403, "Los vencimientos legales los carga HyS. Vos podés verlos en «Vencimientos legales».");
+    if (!esRolHys(cargador.x_rol)) throw new ErrorEntrada(403, SOLO_HYS);
     const ya = porClave.get(clave) || (await ej("x_hys_vencimiento_carga", "search_read", [[["x_idempotency_key", "=", clave]]], { fields: ["id"], limit: 1 }))[0]?.id;
     const resp = async (id, extra = {}) => ({ odoo_model: "x_hys_vencimiento_carga", odoo_id: id, id,
       name: (await ej("x_hys_vencimiento_carga", "read", [[id]], { fields: ["x_name"] }))[0]?.x_name || null, ...extra });
@@ -89,5 +100,5 @@ export function crearVencimientos(cliente, { ahora = () => new Date() } = {}) {
       ...(carga.x_protocolo ? { x_protocolo: carga.x_protocolo, x_protocolo_nombre: carga.x_protocolo_nombre } : {}) }]);
     return { estado: 201, cuerpo: await resp(id) };
   }
-  return { listar, recibir };
+  return { listar, recibir, autorizar };
 }

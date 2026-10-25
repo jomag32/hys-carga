@@ -47,7 +47,8 @@ import { crearEventos } from "./eventos.js";
 import { crearVencimientos } from "./vencimientos.js";
 function falso() {
   const db = { x_hys_evento: [], x_hys_vencimiento_carga: [], x_hys_control_legal: [{ id: 5, x_name: "Control Ejemplo", x_estado: "sin_estado" }],
-    x_hys_inspector: [{ id: 1, x_name: "Inspector Ejemplo", x_rol: "inspector", x_active: true }, { id: 2, x_name: "Encargado Ejemplo", x_rol: "encargado", x_active: true }],
+    x_hys_inspector: [{ id: 1, x_name: "Inspector Ejemplo", x_rol: "inspector", x_active: true }, { id: 2, x_name: "Encargado Ejemplo", x_rol: "encargado", x_active: true },
+      { id: 3, x_name: "Responsable Ejemplo", x_rol: "responsable", x_active: true }, { id: 4, x_name: "Otro Ejemplo", x_rol: "otro", x_active: true }],
     "hr.employee": [{ id: 9, name: "Empleado Ejemplo", active: true }] };
   const ok = (r, [c, op, v]) => (op === "=" ? r[c] === v : true);
   return { db, cli: () => ({ async ejecutar(mo, me, args = [], kw = {}) {
@@ -71,7 +72,7 @@ test("POST eventos: crea, idempotente, 422 sin aviso", async () => {
   await assert.rejects(ev.recibir({ idempotency_key: "21111111-1111-4111-8111-111111111111", datos: { ...base, aviso_telefonico: false } }, { sesion: { inspector_id: 1 } }), (e) => e.estado === 422);
   assert.equal((await ev.catalogo()).empleados[0].nombre, "Empleado Ejemplo");
 });
-test("vencimientos: listar para todos, cargar solo HyS y actualiza el control", async () => {
+test("vencimientos: ver y cargar solo HyS y actualiza el control", async () => {
   const { db, cli } = falso();
   const v = crearVencimientos(cli, { ahora: () => AHORA });
   assert.equal((await v.listar()).controles[0].color, "rojo");
@@ -83,4 +84,16 @@ test("vencimientos: listar para todos, cargar solo HyS y actualiza el control", 
   assert.equal(db.x_hys_control_legal[0].x_estado, "vigente");
   assert.equal(db.x_hys_control_legal[0].x_ultima_carga_id, 1);
   assert.equal((await v.listar()).controles[0].color, "verde");
+});
+
+import { esRolHys } from "./vencimientos.js";
+test("vencimientos: autorizar solo HyS (403 encargado/otros, 401 sin sesión)", async () => {
+  const { cli } = falso();
+  const v = crearVencimientos(cli, { ahora: () => AHORA });
+  assert.equal((await v.autorizar({ inspector_id: 1 })).id, 1);
+  assert.equal((await v.autorizar({ inspector_id: 3 })).id, 3);
+  for (const id of [2, 4, 99]) await assert.rejects(v.autorizar({ inspector_id: id }), (e) => e.estado === 403);
+  await assert.rejects(v.autorizar(null), (e) => e.estado === 401);
+  await assert.rejects(v.recibir({ idempotency_key: K1, datos: {} }, { sesion: { inspector_id: 4 } }), (e) => e.estado === 403);
+  assert.ok(esRolHys(undefined) && esRolHys("desarrollo") && !esRolHys("encargado"));
 });

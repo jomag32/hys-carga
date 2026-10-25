@@ -247,15 +247,17 @@ const servidor = http.createServer(async (req, res) => {
         return json(res, r.estado, r.cuerpo);
       } catch (e) { if (e instanceof ErrorEntrada && e.estado === 413) req.resume(); return responderError(res, e, "eventos"); }
     }
-    // F06 · vencimientos legales (ver: todos los que ingresan; cargar: inspectores HyS)
+    // F06 · vencimientos legales (ver y cargar: solo HyS — responsable / inspector / desarrollo)
     if (ruta === "/api/v1/vencimientos" && req.method === "GET") {
-      if (!sesionDe(req)) return sinSesion(res);
-      try { return json(res, 200, await vencimientos.listar()); } catch (e) { return responderError(res, e, "vencimientos-listar"); }
+      const sesion = sesionDe(req);
+      if (!sesion) return sinSesion(res);
+      try { await vencimientos.autorizar(sesion); return json(res, 200, await vencimientos.listar()); } catch (e) { return responderError(res, e, "vencimientos-listar"); }
     }
     if (ruta === "/api/v1/vencimientos" && req.method === "POST") {
       try {
         const sesion = sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
+        try { await vencimientos.autorizar(sesion); } catch (e) { req.resume(); throw e; }
         const r = await vencimientos.recibir(await leerCuerpo(req), { sesion });
         log(`vencimientos: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
         return json(res, r.estado, r.cuerpo);

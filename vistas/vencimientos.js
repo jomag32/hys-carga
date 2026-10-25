@@ -17,7 +17,7 @@ export default async function vistaVencimientos(app) {
   try { r = await leerVencimientos(); }
   catch (e) { app.replaceChildren(h("h1", {}, "📅 Vencimientos legales"), aviso(`No se pudo leer (${e.message}).`, "error"), h("a", { class: "btn secundario", href: "#/" }, "Volver al inicio")); return; }
   const lista = r.controles || [];
-  const esHys = leerSesion().usuario?.rol_hys !== "encargado";
+  const esHys = ["inspector", "responsable", "desarrollo"].includes(leerSesion().usuario?.rol_hys || "inspector");
   app.replaceChildren(
     h("h1", {}, "📅 Vencimientos legales"),
     h("p", { class: "ayuda" }, "Estado de los controles legales (protocolos de profesionales y proveedores). Avisos a 30, 15, 7 y 0 días."),
