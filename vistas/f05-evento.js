@@ -58,10 +58,13 @@ export default {
         campoOpciones(d, "lesion_parte", "Parte lesionada", LESIONES, { columnas: 2, requerido: true }),
         campoArea(d, "atencion", "Atención recibida", { requerido: true, filas: 2 }),
         d.tipo === "baja" && campoTexto(d, "dias_baja", "Días de baja estimados", { tipo: "number", min: 1, requerido: true }),
-        campoOpciones(d, "aviso_telefonico", "¿Se avisó por teléfono a HyS?", [[true, "Sí, avisé"], [false, "Todavía no"]], { columnas: 2, requerido: d.tipo === "baja" })],
+        campoOpciones(d, "aviso_telefonico", "¿Se avisó por teléfono a HyS?", [[true, "Sí, avisé"], [false, "Todavía no"]], { columnas: 2, requerido: true }),
+        d.aviso_telefonico === true && campoTexto(d, "aviso_hora", "Hora del aviso", { tipo: "datetime-local", requerido: true, max: ahoraIso().slice(0, 16) }),
+        d.aviso_telefonico === true && campoTexto(d, "aviso_a", "A quién avisaste (opcional)")],
       validar: (d) => !d.lesion_parte ? "Elegí la parte lesionada." : !d.atencion?.trim() ? "Contá qué atención recibió." :
         d.tipo === "baja" && !(d.dias_baja >= 1) ? "Los días de baja tienen que ser 1 o más." :
-          d.tipo === "baja" && d.aviso_telefonico !== true ? "Con baja, primero avisá por teléfono a HyS y marcalo." : null
+          d.aviso_telefonico !== true ? "Con lesión, primero avisá por teléfono a HyS y marcalo." :
+            !d.aviso_hora ? "Cargá la hora del aviso." : d.aviso_hora < d.fecha_hora ? "El aviso no puede ser anterior al evento." : null
     },
     {
       titulo: "Qué pasó",
@@ -98,6 +101,8 @@ export default {
       x_atencion: esAccidente(d) ? d.atencion : false,
       x_dias_baja: d.tipo === "baja" ? Number(d.dias_baja) : false,
       x_aviso_telefonico: d.aviso_telefonico === true,
+      x_aviso_hora: esAccidente(d) && d.aviso_hora ? `${d.aviso_hora}:00${CONFIG.ZONA_HORARIA}` : false,
+      x_aviso_a: d.aviso_a || false,
       x_que_paso: d.que_paso,
       x_testigos: d.testigos || false,
       x_foto: d.foto || false,
