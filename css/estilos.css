@@ -207,3 +207,20 @@ textarea.entrada { min-height: 96px; resize: vertical; }
 .lista-vencimientos { display: grid; gap: .6rem; margin: 1rem 0; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
 .tarjeta-vencimiento { border: 1px solid #ccc; border-left: 6px solid #999; border-radius: 8px; padding: .6rem .8rem; background: #fff; }
 .tarjeta-vencimiento.verde { border-left-color: #2e7d32; } .tarjeta-vencimiento.amarillo { border-left-color: #f9a825; } .tarjeta-vencimiento.rojo { border-left-color: #c62828; }
+
+/* Manual de uso (botón «?» en cada ficha, ventana y pantalla #/manual) */
+.form-titulo { position: relative; padding-right: 3rem; }
+.btn-manual { position: absolute; top: 0; right: 0; width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 2px solid var(--marca);
+  background: var(--superficie); color: var(--marca); font-weight: 800; font-size: 1.2rem; cursor: pointer; }
+.dialogo-manual { width: min(40rem, 96vw); max-height: 90vh; padding: 0; border: 1px solid var(--borde); border-radius: 12px; }
+.dialogo-manual::backdrop { background: rgba(0,0,0,.45); }
+.dialogo-barra { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: .6rem .9rem;
+  background: var(--superficie); border-bottom: 1px solid var(--borde); }
+.dialogo-cuerpo { padding: 0 .9rem 1rem; }
+.manual-ficha h2 { font-size: 1.15rem; margin: .8rem 0 .3rem; }
+.manual-ficha h3 { font-size: 1rem; margin: .9rem 0 .2rem; color: var(--marca); }
+.manual-lista { padding-left: 1.2rem; margin: .2rem 0; } .manual-lista li { margin: .25rem 0; }
+.manual-faq dt { font-weight: 700; margin-top: .5rem; } .manual-faq dd { margin: .1rem 0 0 0; }
+.manual-indice { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .8rem; }
+.manual-item, .manual-general { border: 1px solid var(--borde); border-radius: 10px; padding: .5rem .8rem; margin-bottom: .5rem; background: var(--superficie); }
+.manual-item summary, .manual-general summary { font-weight: 700; cursor: pointer; }
