@@ -1,11 +1,11 @@
 // HYS-F07 · Cierre de desvío → write sobre x_hys_desvio (diseño §2.10, §3.6, §5.5 F07, Anexo B).
 // «Sin foto, no está cerrado»: la foto de la corrección es obligatoria (y Odoo lo vuelve a
 // bloquear con R-CIE-1). Si el cierre llegó en plazo lo calcula Odoo.
-// Envío real (2026-10-25.7): GET /api/v1/desvios (abiertos) y POST /api/v1/desvios/:id/cierre (solo HyS),
+// Envío real (2026-10-25.7): GET /api/v1/desvios (abiertos, en curso y vencidos) y POST /api/v1/desvios/:id/cierre (solo HyS),
 // con la cola sin conexión como los demás formularios.
 
 import { h } from "../componentes/util.js";
-import { campoArea, campoFoto, aviso } from "../componentes/campos.js";
+import { campoArea, campoFoto, campoFirma, aviso } from "../componentes/campos.js";
 import { leerDesvios } from "../api/odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
 import { listarCola } from "../api/cola.js";
@@ -25,7 +25,7 @@ export default {
   pasos: [
     {
       titulo: "Desvío",
-      dibujar: (d, ctx) => !ctx.desvios.length ? aviso("No hay desvíos abiertos.", "info") :
+      dibujar: (d, ctx) => !ctx.desvios.length ? aviso("No hay desvíos pendientes.", "info") :
         h("div", { class: "lista-botones" }, ctx.desvios.map((dv) => h("button", {
           type: "button", class: `btn-lista ${d.desvio_id === dv.id ? "elegida" : ""}`,
           onclick: () => { d.desvio_id = dv.id; ctx.refrescar(); }
@@ -42,11 +42,15 @@ export default {
       titulo: "Foto de la corrección",
       dibujar: (d) => [campoFoto(d, "foto_cierre", "Foto de la corrección", { requerido: true }), aviso("Sin foto, no está cerrado.", "alerta")],
       validar: (d) => (!d.foto_cierre ? "Sin foto del arreglo, el desvío no está cerrado." : null)
+    },
+    {
+      titulo: "Firma",
+      dibujar: (d) => campoFirma(d, "firma_cierre", "Firma de quien cierra (opcional)")
     }
   ],
   resumen: (d, ctx) => {
     const dv = ctx.desvios.find((x) => x.id === d.desvio_id);
-    return [["Desvío", dv ? `${dv.nombre} · ${dv.descripcion}` : ""], ["Vence", dv ? vence(dv) : ""], ["Lugar", dv ? lugar(dv) : ""], ["Qué se hizo", d.que_se_hizo], ["Foto", d.foto_cierre ? "Sí" : "No"]];
+    return [["Desvío", dv ? `${dv.nombre} · ${dv.descripcion}` : ""], ["Vence", dv ? vence(dv) : ""], ["Lugar", dv ? lugar(dv) : ""], ["Qué se hizo", d.que_se_hizo], ["Foto", d.foto_cierre ? "Sí" : "No"], ["Firma", d.firma_cierre ? "Sí" : "No"]];
   },
   // Envío real: POST /api/v1/desvios/:id/cierre (el backend escribe x_hys_desvio con MIA).
   armar: (d, auto) => {
@@ -56,7 +60,7 @@ export default {
       operacion: "enviar", endpoint: `/desvios/${Number(d.desvio_id)}/cierre`, ids: [d.desvio_id],
       auth: { inspector_id: yo?.id ?? null, token: yo?.token || null },
       cuerpo: { formulario: "F07", idempotency_key: auto.idempotency_key, odoo: { model: "x_hys_desvio", method: "write" },
-        que_se_hizo: d.que_se_hizo, foto_cierre: d.foto_cierre,
+        que_se_hizo: d.que_se_hizo, foto_cierre: d.foto_cierre, firma_cierre: d.firma_cierre || null,
         control: { fecha_hora_control: auto.fecha_hora_control, gps_lat: g.lat ?? null, gps_lon: g.lon ?? null, gps_precision_m: g.precision ?? null,
           gps_fecha: g.fecha || null, gps_estado: g.estado || "no_disponible" } }
     };

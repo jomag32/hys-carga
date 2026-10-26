@@ -28,6 +28,8 @@ export function calcularVencimiento(criticidad, deteccion, plazos = PLAZOS_DEF) 
   return new Date(t);
 }
 
+/** Estados que todavía se pueden cerrar con F07. */
+export const PENDIENTES = ["abierto", "en_curso", "vencido"];
 const AMBITO_ATS = { deposito: "deposito", logistica: "logistica" };
 /** Vals de un desvío a partir de la ficha (inspección o ATS) y una línea con «No». Puro (testeable). */
 export function armarDesvio({ tipo, ficha, linea, plazos = PLAZOS_DEF }) {
@@ -43,7 +45,8 @@ export function armarDesvio({ tipo, ficha, linea, plazos = PLAZOS_DEF }) {
     x_idempotency_key: `${ats ? "ats" : "ins"}-linea-${linea.id}`
   };
   if (linea.x_foto) v.x_foto_deteccion = linea.x_foto;
-  if (ats) Object.assign(v, { x_origen_formulario: "F08", x_ats_id: ficha.id, x_ambito: AMBITO_ATS[ficha.x_sector] || "deposito" });
+  if (linea.x_item_codigo) v.x_item_codigo = String(linea.x_item_codigo).slice(0, 64);
+  if (ats) Object.assign(v, { x_origen_formulario: "F08", x_ats_id: ficha.id, x_ats_linea_id: linea.id, x_ambito: AMBITO_ATS[ficha.x_sector] || "deposito" });
   else {
     Object.assign(v, { x_origen_formulario: ficha.x_formulario || "F02", x_inspeccion_id: ficha.id, x_linea_id: linea.id, x_ambito: ficha.x_ambito || "obra" });
     if (ficha.x_ot_id) v.x_ot_id = Array.isArray(ficha.x_ot_id) ? ficha.x_ot_id[0] : ficha.x_ot_id;
@@ -91,12 +94,12 @@ export function crearDesvios(cliente, { ahora = () => new Date(), plazos = leerP
   }
   const n2 = (x) => (Array.isArray(x) ? { id: x[0], nombre: x[1] } : null);
   async function listar() {
-    const r = await ej("x_hys_desvio", "search_read", [[["x_estado", "=", "abierto"]]], { fields: ["id", "x_name", "x_descripcion", "x_criticidad",
+    const r = await ej("x_hys_desvio", "search_read", [[["x_estado", "in", PENDIENTES]]], { fields: ["id", "x_name", "x_estado", "x_descripcion", "x_criticidad",
       "x_origen_formulario", "x_ambito", "x_ot_id", "x_sector", "x_fecha_deteccion", "x_fecha_vencimiento", "x_responsable_id", "x_accion_inmediata"], order: "x_fecha_vencimiento, id" });
     const t = ahora().getTime();
-    return { desvios: r.map((d) => ({ id: d.id, nombre: d.x_name, descripcion: d.x_descripcion || "", gravedad: d.x_criticidad, origen: d.x_origen_formulario,
+    return { desvios: r.map((d) => ({ id: d.id, nombre: d.x_name, descripcion: d.x_descripcion || "", gravedad: d.x_criticidad, estado: d.x_estado, origen: d.x_origen_formulario,
       ambito: d.x_ambito, ot: n2(d.x_ot_id), sector: d.x_sector || null, detectado: d.x_fecha_deteccion || null, vence: d.x_fecha_vencimiento || null,
-      vencido: !!d.x_fecha_vencimiento && deOdoo(d.x_fecha_vencimiento).getTime() < t, responsable: n2(d.x_responsable_id), accion_inmediata: d.x_accion_inmediata || "" })) };
+      vencido: d.x_estado === "vencido" || !!d.x_fecha_vencimiento && deOdoo(d.x_fecha_vencimiento).getTime() < t, responsable: n2(d.x_responsable_id), accion_inmediata: d.x_accion_inmediata || "" })) };
   }
   /** F07: cierre (write). Idempotente por x_cierre_idempotency_key. */
   async function cerrar(id, cuerpo, { sesion } = {}) {
@@ -107,7 +110,7 @@ export function crearDesvios(cliente, { ahora = () => new Date(), plazos = leerP
     if (!d) throw new ErrorEntrada(404, "Ese desvío no existe en Odoo");
     const resp = (extra = {}) => ({ odoo_model: "x_hys_desvio", odoo_id: d.id, id: d.id, name: d.x_name, ...extra });
     if (d.x_estado === "cerrado" && d.x_cierre_idempotency_key === clave) return { estado: 200, cuerpo: resp({ repetido: true }) };
-    if (d.x_estado !== "abierto") throw new ErrorEntrada(409, `El desvío ${d.x_name} ya no está abierto (${d.x_estado}).`);
+    if (!PENDIENTES.includes(d.x_estado)) throw new ErrorEntrada(409, `El desvío ${d.x_name} ya no está pendiente (${d.x_estado}).`);
     const que = String(cuerpo?.que_se_hizo || "").trim();
     let foto = cuerpo?.foto_cierre;
     if (typeof foto === "string" && foto.startsWith("data:")) foto = foto.slice(foto.indexOf(",") + 1);
@@ -115,13 +118,15 @@ export function crearDesvios(cliente, { ahora = () => new Date(), plazos = leerP
     if (!que) err.push("que_se_hizo");
     if (!foto) err.push("foto_cierre");
     if (err.length) throw new ErrorEntrada(422, err.includes("foto_cierre") ? "Sin foto del arreglo, el desvío no está cerrado." : "Contá qué se hizo.", { errores: err });
+    let firma = cuerpo?.firma_cierre;
+    if (typeof firma === "string" && firma.startsWith("data:")) firma = firma.slice(firma.indexOf(",") + 1);
     const ctl = cuerpo?.control || {};
     let cierre = ctl.fecha_hora_control ? new Date(ctl.fecha_hora_control) : ahora();
     if (isNaN(cierre) || cierre > ahora()) cierre = ahora();
     const txt = [textoInspector(u), "Inspector HyS", "hys-carga"].join(" · ").slice(0, 250);
     const enPlazo = !d.x_fecha_vencimiento || cierre <= deOdoo(d.x_fecha_vencimiento);
     await ej("x_hys_desvio", "write", [[d.id], { x_estado: "cerrado", x_que_se_hizo: que.slice(0, 4000), x_foto_cierre: foto, x_fecha_cierre: aOdoo(cierre),
-      x_cerrado_por: txt, x_cerrado_en_plazo: enPlazo, x_vencido: false, x_cierre_idempotency_key: clave }]);
+      x_cerrado_por: txt, x_cerrado_en_plazo: enPlazo, x_vencido: false, x_cierre_idempotency_key: clave, ...(firma ? { x_firma_cierre: firma } : {}) }]);
     return { estado: 200, cuerpo: resp({ cerrado_en_plazo: enPlazo }) };
   }
   return { generar, generarSeguro, listar, cerrar, autorizar };

@@ -55,3 +55,21 @@ test("cierre: foto obligatoria, solo HyS, idempotente", async () => {
   assert.equal((await dv.cerrar(8, { idempotency_key: UU }, s)).cuerpo.repetido, true);
   void datos;
 });
+test("ATS enlaza la línea y guarda el código del ítem", () => {
+  const a = armarDesvio({ tipo: "ats", ficha: { id: 3, x_sector: "deposito" }, linea: { id: 4, x_name: "x", x_item_codigo: "ATS-2", x_criticidad: "menor" } });
+  assert.equal(a.x_ats_linea_id, 4); assert.equal(a.x_item_codigo, "ATS-2");
+});
+test("cierre de un desvío vencido o en curso, con firma opcional", async () => {
+  const UU = "21111111-2222-4333-8444-555555555555";
+  for (const est of ["vencido", "en_curso"]) {
+    const d = { id: 9, x_name: "D-00002", x_estado: est, x_fecha_vencimiento: "2020-01-01 00:00:00" }; let w;
+    const cli = () => ({ async ejecutar(mo, me, args) {
+      if (mo === "x_hys_inspector") return [{ id: 1, x_name: "Ej", x_legajo: "1", x_rol: "inspector" }];
+      if (me === "search_read") return [d]; if (me === "write") { w = args[1]; return true; } } });
+    const r = await crearDesvios(cli).cerrar(9, { idempotency_key: UU, que_se_hizo: "ok", foto_cierre: "AAA", firma_cierre: "data:image/png;base64,FFF" }, { sesion: { inspector_id: 1 } });
+    assert.equal(r.cuerpo.cerrado_en_plazo, false); assert.equal(w.x_firma_cierre, "FFF"); assert.equal(w.x_estado, "cerrado");
+  }
+  const c = { id: 9, x_name: "D-3", x_estado: "anulado" };
+  const cli = () => ({ async ejecutar(mo) { if (mo === "x_hys_inspector") return [{ id: 1, x_name: "Ej", x_legajo: "1", x_rol: "inspector" }]; return [c]; } });
+  await assert.rejects(crearDesvios(cli).cerrar(9, { idempotency_key: UU, que_se_hizo: "ok", foto_cierre: "A" }, { sesion: { inspector_id: 1 } }), (e) => e.estado === 409);
+});
