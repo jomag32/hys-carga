@@ -33,12 +33,12 @@ campo("x_hys_desvio", "x_ats_linea_id", {"ttype": "many2one", "relation": "x_hys
 campo("x_hys_desvio", "x_item_codigo", {"ttype": "char", "field_description": "Código del ítem"})
 
 # ---------------------------------------------------------------- parámetros de plazo (diseño §3.3)
-for k, v in [("hys.desvio.plazo_critico_horas", "24"), ("hys.desvio.plazo_mayor_dias_habiles", "5"), ("hys.desvio.plazo_menor_dias", "15")]:
+for k, v in [("hys.desvio.plazo_critico_horas", "24"), ("hys.desvio.plazo_mayor_dias", "5"), ("hys.desvio.plazo_menor_dias", "15")]:
     if not c("ir.config_parameter", "search", [("key", "=", k)]): OUT.setdefault("parametros", []).append(c("ir.config_parameter", "create", {"key": k, "value": v}))
 
 R_DES_1 = """# HyS · R-DES-1: vence según gravedad (diseño §3.3). Plazos en Ajustes › Técnico › Parámetros del sistema (hys.desvio.plazo_*).
 P = env['ir.config_parameter'].sudo()
-hc = int(P.get_param('hys.desvio.plazo_critico_horas', '24')); dh = int(P.get_param('hys.desvio.plazo_mayor_dias_habiles', '5')); dm = int(P.get_param('hys.desvio.plazo_menor_dias', '15'))
+hc = int(P.get_param('hys.desvio.plazo_critico_horas', '24')); dh = int(P.get_param('hys.desvio.plazo_mayor_dias') or P.get_param('hys.desvio.plazo_mayor_dias_habiles') or '5'); dm = int(P.get_param('hys.desvio.plazo_menor_dias', '15'))
 ACC = {'critico': 'Se detiene la tarea', 'mayor': 'Se corrige o se restringe', 'menor': 'Se registra y se programa'}
 for d in records:
     det = d.x_fecha_deteccion or d.create_date
@@ -46,11 +46,7 @@ for d in records:
     if g == 'critico':
         v = det + datetime.timedelta(hours=hc)
     elif g == 'mayor':
-        v = det; n = dh
-        while n > 0:
-            v = v + datetime.timedelta(days=1)
-            if (v - datetime.timedelta(hours=3)).weekday() < 5:
-                n -= 1
+        v = det + datetime.timedelta(days=dh)  # días corridos (pregunta #8 resuelta)
     else:
         v = det + datetime.timedelta(days=dm)
     vals = {}

@@ -1,12 +1,12 @@
 // Desvíos (x_hys_desvio): uno por cada «No» de F02/F03/F04 (x_hys_inspeccion_linea) y F08 (x_hys_ats_linea),
-// y su cierre F07. Plazos del diseño §3.3 / §2.10: crítico +24 h · mayor +5 días hábiles (lun–vie, sin feriados,
-// como la simulación) · menor +15 días corridos. Configurables con DESVIO_PLAZOS (JSON) por si HyS los cambia.
+// y su cierre F07. Plazos del diseño §3.3 / §2.10: crítico +24 h · mayor +5 días corridos (sábados, domingos y feriados
+// cuentan; decisión de Jorge 25/10/2026, pregunta #8 resuelta) · menor +15 días corridos. Configurables con DESVIO_PLAZOS (JSON) por si HyS los cambia.
 import { ErrorEntrada } from "./inspecciones.js";
 import { textoInspector } from "./catalogos.js";
 import { esRolHys } from "./vencimientos.js";
 import { ErrorOdoo } from "./odoo.js";
 
-export const PLAZOS_DEF = { critico: { horas: 24 }, mayor: { dias_habiles: 5 }, menor: { dias: 15 } };
+export const PLAZOS_DEF = { critico: { horas: 24 }, mayor: { dias: 5 }, menor: { dias: 15 } };
 export function leerPlazos(env = process.env) {
   try { return { ...PLAZOS_DEF, ...(env.DESVIO_PLAZOS ? JSON.parse(env.DESVIO_PLAZOS) : {}) }; } catch { return PLAZOS_DEF; }
 }
@@ -17,7 +17,7 @@ export const aOdoo = (d) => new Date(d).toISOString().slice(0, 19).replace("T", 
 export const deOdoo = (s) => new Date(String(s).replace(" ", "T") + "Z");
 const ART = 3 * 3600e3;
 
-/** Vencimiento (Date) según gravedad y fecha de detección (Date). Días hábiles: sábado y domingo de Argentina no cuentan. */
+/** Vencimiento (Date) según gravedad y fecha de detección (Date). Días corridos; `dias_habiles` (lun–vie) queda solo por compatibilidad con DESVIO_PLAZOS viejos. */
 export function calcularVencimiento(criticidad, deteccion, plazos = PLAZOS_DEF) {
   const p = plazos[criticidad] || plazos.menor;
   let t = new Date(deteccion).getTime();

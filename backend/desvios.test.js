@@ -6,7 +6,8 @@ const D = new Date("2026-10-23T15:00:00-03:00"); // viernes
 test("plazos por gravedad (diseño §3.3)", () => {
   assert.equal(calcularVencimiento("critico", D).toISOString(), "2026-10-24T18:00:00.000Z");
   assert.equal(calcularVencimiento("menor", D).toISOString(), "2026-11-07T18:00:00.000Z");
-  assert.equal(calcularVencimiento("mayor", D).toISOString(), "2026-10-30T18:00:00.000Z"); // vie + 5 hábiles = vie siguiente
+  assert.equal(calcularVencimiento("mayor", D).toISOString(), "2026-10-28T18:00:00.000Z"); // vie + 5 corridos = mié
+  assert.equal(calcularVencimiento("mayor", D, { mayor: { dias_habiles: 5 } }).toISOString(), "2026-10-30T18:00:00.000Z"); // compatibilidad
   assert.equal(leerPlazos({ DESVIO_PLAZOS: '{"menor":{"dias":10}}' }).menor.dias, 10);
 });
 test("armado desde línea de inspección y ATS", () => {

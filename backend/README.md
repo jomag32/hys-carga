@@ -95,6 +95,6 @@ Prueba local de punta a punta (envío real a Odoo): backend local en el puerto 8
 ## F07 · Desvíos (25/10/2026, v2026-10-25.7)
 
 - Al recibir F02/F03/F04 (`POST /inspecciones`) y F08 (`POST /ats`), el backend crea un `x_hys_desvio` por cada línea en «No» (`x_idempotency_key` = `ins-linea-<id>` / `ats-linea-<id>`: reenviar no duplica). Fichas cuyo nombre tiene PRUEBA/EJEMPLO no generan (salvo `DESVIOS_EN_PRUEBA=1`, solo pruebas). Si falla, la ficha igual se guarda y se reintenta en el reenvío.
-- Vence: crítico +24 h · mayor +5 días hábiles (lun–vie, sin feriados) · menor +15 días (diseño §2.10/§3.3). Opcional `DESVIO_PLAZOS` (JSON, p. ej. `{"menor":{"dias":10}}`).
+- Vence: crítico +24 h · mayor +5 días corridos (sábados, domingos y feriados cuentan; pregunta #8 resuelta 25/10/2026) · menor +15 días (diseño §2.10/§3.3). Opcional `DESVIO_PLAZOS` (JSON, p. ej. `{"menor":{"dias":10}}`).
 - `GET /api/v1/desvios` (sesión; solo HyS, el resto → 403): abiertos con vencimiento y si está vencido.
 - `POST /api/v1/desvios/:id/cierre` (sesión; solo HyS) `{idempotency_key, que_se_hizo, foto_cierre, control}` → write `x_estado=cerrado`, `x_que_se_hizo`, `x_foto_cierre`, `x_fecha_cierre`, `x_cerrado_por`, `x_cerrado_en_plazo`, `x_cierre_idempotency_key`. Sin foto → 422; ya cerrado con la misma clave → 200 `repetido`; cerrado/anulado con otra → 409.
