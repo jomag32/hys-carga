@@ -352,6 +352,17 @@ export async function leerVencimientos() {
   return conCopia("vencimientos", () => leerDelBackend("/vencimientos"));
 }
 
+/** F07: desvíos abiertos (GET /api/v1/desvios, solo HyS). En MOCK: los de ejemplo del celular, con la misma forma. */
+export async function leerDesvios() {
+  if (CONFIG.OBRAS_FUENTE !== "backend") {
+    const r = await leerRegistros("x_hys_desvio", [["x_estado", "=", "abierto"]], ["x_name", "x_descripcion", "x_criticidad", "x_ot_id", "x_ambito", "x_sector", "x_fecha_deteccion", "x_fecha_vencimiento", "x_responsable_id"]);
+    return { desvios: r.map((d) => ({ id: d.id, nombre: d.x_name, descripcion: d.x_descripcion || "", gravedad: d.x_criticidad, ambito: d.x_ambito,
+      ot: Array.isArray(d.x_ot_id) ? { id: d.x_ot_id[0], nombre: d.x_ot_id[1] } : null, sector: d.x_sector || null, vence: d.x_fecha_vencimiento || null, vencido: false,
+      responsable: Array.isArray(d.x_responsable_id) ? { id: d.x_responsable_id[0], nombre: d.x_responsable_id[1] } : null })) };
+  }
+  return conCopia("desvios", () => leerDelBackend("/desvios"));
+}
+
 /** ATS ya cargados para ese sector y día (aviso «ya hay ATS para este turno»). Sin red o en MOCK: []. */
 export async function leerAtsDelDia(sector, fecha) {
   if (CONFIG.OBRAS_FUENTE !== "backend") return [];
@@ -506,7 +517,7 @@ const simulado = {
     const ya = lista.find((x) => x.idempotency_key === clave);
     if (ya) return { ...ya.respuesta, repetido: true }; // mismo envío: misma respuesta (200), sin duplicar
     const n = lista.filter((x) => x.endpoint === `POST /api/v1${endpoint}`).length + 1;
-    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : endpoint === "/ats" ? `ATS-SIM-${String(n).padStart(5, "0")}` : endpoint === "/eventos" ? `EV-SIM-${String(n).padStart(4, "0")}` : endpoint === "/vencimientos" ? `VEN-SIM-${String(n).padStart(4, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
+    const respuesta = { odoo_model: cuerpo.odoo.model, odoo_id: n, name: endpoint === "/fichas" ? `FR-SIM-${String(n).padStart(4, "0")}` : endpoint === "/ats" ? `ATS-SIM-${String(n).padStart(5, "0")}` : endpoint === "/eventos" ? `EV-SIM-${String(n).padStart(4, "0")}` : endpoint.startsWith("/desvios/") ? `D-SIM-${String(n).padStart(5, "0")}` : endpoint === "/vencimientos" ? `VEN-SIM-${String(n).padStart(4, "0")}` : `INS-2026-${String(n).padStart(5, "0")}`, simulado: true };
     lista.unshift({ idempotency_key: clave, endpoint: `POST /api/v1${endpoint}`, recibido: new Date().toISOString(),
       respuesta, cuerpo: recortarBase64(cuerpo) });
     try { localStorage.setItem(CLAVE_ENVIADOS, JSON.stringify(lista.slice(0, 30))); }

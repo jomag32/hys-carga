@@ -12,7 +12,7 @@
 //   Por eso todo se pide a la red como «archivo?v=VERSION» (otra clave para la CDN → sale del servidor,
 //   ya nuevo) y se guarda en la copia con la clave sin «?v=». Así la copia de una versión nunca mezcla
 //   archivos de otra (antes, con cache:"reload", la CDN podía colar módulos viejos en la copia nueva).
-const VERSION = "2026-10-25.6";
+const VERSION = "2026-10-25.7";
 const CACHE = `hys-carga-cascara-${VERSION}`;
 const RED_MS = 4000;
 

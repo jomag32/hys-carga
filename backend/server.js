@@ -32,6 +32,7 @@ import { crearAltaFichas, ETAPAS_FICHA } from "./fichas-alta.js";
 import { crearAts } from "./ats.js";
 import { crearEventos } from "./eventos.js";
 import { crearVencimientos } from "./vencimientos.js";
+import { crearDesvios } from "./desvios.js";
 
 const PORT = Number(process.env.PORT) || 10000;
 const ETAPAS = (process.env.OBRAS_ETAPAS || "EN PROGRESO,PAUSADO").split(",").map((s) => s.trim()).filter(Boolean);
@@ -52,6 +53,7 @@ const altaFichas = crearAltaFichas(cliente, catalogos);
 const ats = crearAts(cliente, { catalogos });
 const eventos = crearEventos(cliente);
 const vencimientos = crearVencimientos(cliente);
+const desvios = crearDesvios(cliente);
 // Firma de sesiones: HYS_SESSION_SECRET si está; si no, la credencial de servicio (estable entre reinicios).
 const ingreso = crearIngreso({ catalogos, secreto: process.env.HYS_SESSION_SECRET || process.env.ODOO_PASSWORD || null });
 
@@ -225,6 +227,7 @@ const servidor = http.createServer(async (req, res) => {
         if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await ats.recibir(cuerpo, { sesion });
+        if (r.cuerpo?.id) { const g = await desvios.generarSeguro("ats", r.cuerpo.id); if (g.creados?.length) { r.cuerpo.desvios_creados = g.creados.length; log(`desvios: ${g.creados.length} creados (ats ${r.cuerpo.id})`); } }
         log(`ats: ${r.estado === 201 ? "creado" : "repetido"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
         return json(res, r.estado, r.cuerpo);
       } catch (e) {
@@ -262,6 +265,23 @@ const servidor = http.createServer(async (req, res) => {
         log(`vencimientos: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
         return json(res, r.estado, r.cuerpo);
       } catch (e) { if (e instanceof ErrorEntrada && e.estado === 413) req.resume(); return responderError(res, e, "vencimientos"); }
+    }
+    // F07 · desvíos abiertos y cierre (solo HyS, como vencimientos)
+    if (ruta === "/api/v1/desvios" && req.method === "GET") {
+      const sesion = sesionDe(req);
+      if (!sesion) return sinSesion(res);
+      try { await desvios.autorizar(sesion); return json(res, 200, await desvios.listar()); } catch (e) { return responderError(res, e, "desvios-listar"); }
+    }
+    const mCierre = /^\/api\/v1\/desvios\/(\d+)\/cierre$/.exec(ruta);
+    if (mCierre && req.method === "POST") {
+      try {
+        const sesion = sesionDe(req);
+        if (!sesion) { req.resume(); return sinSesion(res); }
+        try { await desvios.autorizar(sesion); } catch (e) { req.resume(); throw e; }
+        const r = await desvios.cerrar(Number(mCierre[1]), await leerCuerpo(req), { sesion });
+        log(`desvios: cierre ${r.cuerpo.repetido ? "repetido" : "ok"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
+        return json(res, r.estado, r.cuerpo);
+      } catch (e) { if (e instanceof ErrorEntrada && e.estado === 413) req.resume(); return responderError(res, e, "desvios-cierre"); }
     }
     if (ruta === "/api/v1/inspectores" && req.method === "GET") {
       try {
@@ -301,6 +321,7 @@ const servidor = http.createServer(async (req, res) => {
         if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await inspecciones.recibir(cuerpo, { claveCabecera: req.headers["idempotency-key"] || null, sesion });
+        if (r.cuerpo?.id && !r.cuerpo.simulado) { const g = await desvios.generarSeguro("inspeccion", r.cuerpo.id); if (g.creados?.length) { r.cuerpo.desvios_creados = g.creados.length; log(`desvios: ${g.creados.length} creados (inspeccion ${r.cuerpo.id})`); } }
         log(`inspecciones: ${r.estado === 201 ? "creada" : "repetida"} id ${r.cuerpo.id}${r.cuerpo.descartados?.length ? ` · descartados ${r.cuerpo.descartados.join(", ")}` : ""}`);
         return json(res, r.estado, r.cuerpo);
       } catch (e) {
@@ -309,7 +330,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf", "GET /api/v1/eventos/catalogo", "POST /api/v1/eventos", "GET /api/v1/vencimientos", "POST /api/v1/vencimientos"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf", "GET /api/v1/eventos/catalogo", "POST /api/v1/eventos", "GET /api/v1/vencimientos", "POST /api/v1/vencimientos", "GET /api/v1/desvios", "POST /api/v1/desvios/:id/cierre"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

@@ -17,11 +17,11 @@ import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 /** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
-// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 (cargar y ver #/vencimientos): solo HyS.
+// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 (cargar y ver #/vencimientos) y F07 (cierre de desvíos): solo HyS.
 export const ROLES_HYS = ["inspector", "responsable", "desarrollo"];
 export const esHys = (u) => !!u && ROLES_HYS.includes(u.rol_hys || "inspector");
 export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05")
-  : esHys(u) ? FORMULARIOS : FORMULARIOS.filter((f) => f.cod !== "F06"));
+  : esHys(u) ? FORMULARIOS : FORMULARIOS.filter((f) => f.cod !== "F06" && f.cod !== "F07"));
 export const FORMULARIOS = [
   { cod: "F01", ruta: "f01", archivo: "f01-ficha-riesgo.js", titulo: "Ficha de Riesgos de Obra", donde: "Inicio de obra", icono: "📋" },
   { cod: "F02", ruta: "f02", archivo: "f02-inspeccion-obra.js", titulo: "Inspección de obra", donde: "Obra", icono: "🦺" },
