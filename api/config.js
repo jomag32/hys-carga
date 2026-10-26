@@ -46,8 +46,18 @@ export const CONFIG = {
   ZONA_IANA: "America/Argentina/Buenos_Aires", // para mostrar y calcular la hora de Argentina sin depender del celular
   REINTENTO_MS: 30000,              // cada cuánto se reintenta la cola si hay pendientes
   FOTO_LADO_MAX: 1600,              // px; el diseño pide ≤ 1600 px y < 500 KB (§5.3)
-  FOTO_CALIDAD: 0.7
+  FOTO_CALIDAD: 0.7,
+  // Planta de referencia para «Distancia a Posadas» (F01 · Usar mi ubicación). PENDIENTE: en Odoo las empresas
+  // (Coop. El Sol, Calle 136 7076; ARME, Calle 139 6676; Cormet, Calle N139 y N136, Posadas) tienen
+  // partner_latitude/longitude = 0 y no hay otro dato en el código. Hasta que HyS confirme el punto, null:
+  // el botón avisa que falta y la distancia se escribe a mano. Formato: { lat: -27.xxxx, lon: -55.xxxx }.
+  PLANTA_COORDS: null
 };
+// Solo para pruebas en localhost o ?dev=1: ?planta=lat,lon fija una planta de PRUEBA (nunca en producción).
+if ((EN_LOCAL || PARAMS.get("dev") === "1") && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(PARAMS.get("planta") || "")) {
+  const [lat, lon] = PARAMS.get("planta").split(",").map(Number);
+  CONFIG.PLANTA_COORDS = { lat, lon, prueba: true };
+}
 
 // Configuración LOCAL de prueba (solo en localhost; archivo en .gitignore, ver config.local.example.js).
 // Sirve para probar MODO_ENVIO "backend" contra un backend local SIN tocar la configuración publicada.

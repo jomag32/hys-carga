@@ -25,7 +25,7 @@ export const MANUAL = {
     quien: "La carga HyS al crear la OT (obras no iniciadas, en curso o pausadas). La aprueba HyS responsable en Odoo. La ven HyS y Dirección de Obra en Odoo (Higiene y Seguridad › Fichas › F01).",
     pasos: [
       ["Obra", "Viene de la obra elegida al ingresar (podés «Cambiar»). Una sola Ficha por OT: si ya tiene, no deja seguir."],
-      ["Lugar", "Distancia a Posadas en km (obligatoria) y tipo de predio (obligatorio): terreno del cliente, planta de terceros o vía pública."],
+      ["Lugar", "Distancia a Posadas en km (OBLIGATORIA, número entero entre 0 y 2000) y tipo de predio (obligatorio): terreno del cliente, planta de terceros o vía pública. Si estás en la obra, tocá «📍 Usar mi ubicación»: la app calcula los km en línea recta desde donde estás hasta la planta y los pone sola (es aproximada: por camino suele ser más, podés corregirla). Si el GPS falla o no das permiso, escribila a mano."],
       ["Riesgos aplicables", "Marcá todos los que tiene la obra (al menos uno). ★ Crítico o Medio según el catálogo."],
       ["Hitos (opcional)", "Etapas de la obra (montaje, zinguería…): nombre, inicio previsto y riesgos de ese hito. Se pueden completar después en Odoo."],
       ["Controles y documentación (opcional)", "EPP y controles específicos; documentación que pide el cliente."],
@@ -42,10 +42,12 @@ export const MANUAL = {
         "Si no hay ninguno de esos → Clase C."]],
       "Hito terminado no cuenta. Hito crítico o medio sin fecha prevista: aviso para cargarle la fecha.",
       "«Revisar con UGEOP»: hay un riesgo crítico marcado que ningún hito crítico cubre.",
-      "Obra a más de 50 km: modalidad alterna (inspección presencial y remota)."
+      "Obra a más de 50 km: modalidad alterna (inspección presencial y remota). Por eso la distancia es obligatoria.",
+      "Distancia por GPS = línea recta entre tu posición y la planta (fórmula de distancia sobre la esfera terrestre), redondeada a km."
     ],
     faq: [
       ["Me equivoqué en un riesgo, ¿lo cambio en la app?", "No: una vez enviada, se corrige en Odoo (HyS). Si estaba aprobada, vuelve a borrador y hay que aprobarla de nuevo."],
+      ["Usé mi ubicación pero no estoy en la obra", "Entonces la distancia está mal: borrala y escribí la real a mano."],
       ["¿Por qué mi obra sale Clase A si es tranquila?", "Porque todavía no está aprobada o no tiene hitos. Mirá el «Motivo de la clase» en la Ficha en Odoo."]
     ]
   },

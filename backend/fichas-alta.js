@@ -58,7 +58,9 @@ export function validarFicha(cuerpo, campos, riesgosActivos) {
 
   if (!Number.isInteger(v.x_ot_id) || v.x_ot_id <= 0) mal("x_ot_id", "Falta la obra (OT)");
   const dist = Number(v.x_distancia_km);
-  if (v.x_distancia_km === undefined || v.x_distancia_km === null || v.x_distancia_km === "" || !Number.isFinite(dist) || dist < 0) mal("x_distancia_km", "Distancia inválida");
+  // Distancia a Posadas: OBLIGATORIA (regla > 50 km presencial/remota). Entero en Odoo; tope de plausibilidad 2000 km.
+  if (v.x_distancia_km === undefined || v.x_distancia_km === null || v.x_distancia_km === "" || v.x_distancia_km === false) mal("x_distancia_km", "Falta la distancia a Posadas (km): es obligatoria");
+  else if (!Number.isFinite(dist) || dist < 0 || dist > 2000) mal("x_distancia_km", "Distancia inválida: tiene que ser entre 0 y 2000 km");
   if (cf.x_tipo_predio && !sel(cf.x_tipo_predio).includes(v.x_tipo_predio)) mal("x_tipo_predio", "Tipo de predio inválido");
   if (!String(v.x_centro_salud ?? "").trim()) mal("x_centro_salud", "Falta el centro de salud");
   const riesgos = idsDe(v.x_riesgo_ids);
@@ -73,7 +75,7 @@ export function validarFicha(cuerpo, campos, riesgosActivos) {
     if (cf[k].type === "selection" && x !== false && !sel(cf[k]).includes(x)) { descartados.add(k); continue; } // valor que Odoo no acepta
     vals[k] = adaptar(cf[k], x);
   }
-  if (vals.x_distancia_km !== undefined) vals.x_distancia_km = dist;
+  if (vals.x_distancia_km !== undefined) vals.x_distancia_km = Math.round(dist);
   if (riesgos && vals.x_riesgo_ids !== undefined) vals.x_riesgo_ids = [[6, 0, riesgos]];
   if (typeof vals.x_centro_salud === "string") vals.x_centro_salud = vals.x_centro_salud.trim();
 

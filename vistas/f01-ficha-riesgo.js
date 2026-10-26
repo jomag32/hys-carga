@@ -11,6 +11,8 @@ import { selectorObra } from "../componentes/selector-obra.js";
 import { camposControl, obraCorta } from "../componentes/campos-auto.js";
 import { leerRiesgosF01, leerFichasF01, aFormatoOdoo } from "../api/odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
+import { tomarGps, TEXTO_GPS } from "../componentes/campos-auto.js";
+import { distanciaKm, coordsPlanta, errorDistancia, DIST_MAX_KM } from "../componentes/distancia.js";
 
 const fichaDe = (d, ctx) => (ctx.fichas || []).find((f) => f.ot === d.obra?.id);
 const PREDIOS = [["terreno_cliente", "Terreno del cliente"], ["planta_terceros", "Planta de terceros"], ["via_publica", "Vía pública"]];
@@ -19,6 +21,29 @@ const obraSesion = (ctx) => (ctx.sesion?.obra && ctx.sesion.obra.id !== "planta"
 // El paso «Obra» se saltea si la obra ya viene de la sesión, salvo que se toque «Cambiar» o que esa OT
 // ya tenga Ficha (ahí se muestra el selector con el aviso y no deja seguir).
 const pasoObraVisible = (d, ctx) => !d.obra || !!d.cambiar_obra || !!fichaDe(d, ctx);
+// «Usar mi ubicación»: GPS del celular → km en línea recta a la planta (aproximada, editable).
+// d.distancia_origen = "gps" | "manual"; d.distancia_gps = {km, precision, estado} (solo informativo).
+function usarUbicacion(d, ctx) {
+  const planta = coordsPlanta();
+  if (!planta) { d.distancia_gps = { estado: "sin_planta" }; ctx.refrescar(); return; }
+  d.distancia_gps = { estado: "pendiente" }; ctx.refrescar();
+  tomarGps().then((g) => {
+    if (g.estado !== "ok") { d.distancia_gps = { estado: g.estado }; ctx.refrescar(); return; }
+    const km = Math.round(distanciaKm(g, planta));
+    d.distancia_km = km; d.distancia_origen = "gps";
+    d.distancia_gps = { estado: "ok", km, precision: g.precision, prueba: !!planta.prueba };
+    ctx.refrescar();
+  });
+}
+function avisoDistanciaGps(d) {
+  const g = d.distancia_gps;
+  if (!g) return "";
+  if (g.estado === "pendiente") return aviso("📍 Buscando tu ubicación…", "info");
+  if (g.estado === "sin_planta") return aviso("Todavía no están cargadas las coordenadas de la planta: escribí la distancia a mano.", "alerta");
+  if (g.estado !== "ok") return aviso(`${TEXTO_GPS[g.estado] ? TEXTO_GPS[g.estado].split(":")[0] : "Sin ubicación"}: escribí la distancia a mano.`, "alerta");
+  return aviso(`📍 ${g.km} km aproximados, en línea recta desde donde estás (±${g.precision} m). Por camino suele ser más: corregila si sabés la real.${g.prueba ? " (planta de PRUEBA)" : ""}`,
+    d.distancia_origen === "gps" ? "info" : "alerta");
+}
 const textoFicha = (f) => `${f.nombre || `id ${f.id}`}${f.estado ? `, ${f.estado}` : ""}`;
 
 function campoHitos(d, ctx, refrescar) {
@@ -65,11 +90,16 @@ export default {
     },
     {
       titulo: "Lugar",
-      dibujar: (d) => [
-        campoTexto(d, "distancia_km", "Distancia a Posadas (km)", { tipo: "number", min: 0, requerido: true, ayuda: "Más de 50 km: alterna inspección presencial y remota." }),
+      dibujar: (d, ctx) => [
+        // Intento automático (una vez) si la planta está configurada y todavía no hay distancia.
+        (d.distancia_km === "" || d.distancia_km == null) && !d.distancia_gps && coordsPlanta() ? (queueMicrotask(() => usarUbicacion(d, ctx)), "") : "",
+        campoTexto(d, "distancia_km", "Distancia a Posadas (km)", { tipo: "number", min: 0, max: DIST_MAX_KM, step: 1, requerido: true,
+          ayuda: "Obligatoria. Más de 50 km: alterna inspección presencial y remota.", alCambiar: () => { d.distancia_origen = "manual"; } }),
+        h("button", { type: "button", class: "btn secundario", id: "btn-usar-ubicacion", onclick: () => usarUbicacion(d, ctx) }, "📍 Usar mi ubicación"),
+        avisoDistanciaGps(d),
         campoOpciones(d, "tipo_predio", "Tipo de predio", PREDIOS, { requerido: true }),
         aviso("La ubicación (GPS) se toma sola al abrir el formulario.", "info")],
-      validar: (d) => (d.distancia_km === "" || d.distancia_km == null ? "Cargá la distancia." : Number(d.distancia_km) < 0 ? "La distancia no puede ser negativa." : !d.tipo_predio ? "Elegí el tipo de predio." : null)
+      validar: (d) => (errorDistancia(d.distancia_km) || (!d.tipo_predio ? "Elegí el tipo de predio." : null))
     },
     {
       titulo: "Riesgos aplicables",
@@ -99,7 +129,7 @@ export default {
   resumen: (d, ctx) => [
     ["Obra", d.obra?.name],
     ["Cliente", nombreM2o(d.obra?.partner_id)],
-    ["Distancia", `${d.distancia_km} km`],
+    ["Distancia", `${Math.round(Number(d.distancia_km))} km${d.distancia_origen === "gps" ? " (aprox. por GPS, en línea recta)" : " (cargada a mano)"}`],
     ["Predio", PREDIOS.find(([v]) => v === d.tipo_predio)?.[1]],
     ["Riesgos", ctx.riesgos.filter((r) => d.riesgo_ids.includes(r.id)).map((r) => r.nombre).join(", ")],
     ["Hitos", (d.hitos || []).length ? d.hitos.map((hh) => hh.nombre + (hh.inicio ? ` (${hh.inicio})` : "")).join(", ") : "—"],
@@ -109,7 +139,7 @@ export default {
   armar: (d, auto) => {
     const vals = aFormatoOdoo({
       x_ot_id: d.obra.id,
-      x_distancia_km: Number(d.distancia_km),
+      x_distancia_km: Math.round(Number(d.distancia_km)), // entero en Odoo
       x_tipo_predio: d.tipo_predio,
       x_riesgo_ids: [[6, 0, d.riesgo_ids]],
       x_epp_controles: d.epp?.trim() || false,
@@ -127,7 +157,7 @@ export default {
         formulario: "F01",
         idempotency_key: auto.idempotency_key,
         odoo: { model: "x_hys_ficha", method: "create", vals },
-        contexto: { obra: d.obra.name, lugar: obraCorta(leerSesion().obra), app: "hys-carga web" }
+        contexto: { distancia_origen: d.distancia_origen || "manual", distancia_gps_km: d.distancia_gps?.km ?? null, obra: d.obra.name, lugar: obraCorta(leerSesion().obra), app: "hys-carga web" }
       }
     };
   }

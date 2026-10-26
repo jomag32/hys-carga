@@ -125,3 +125,14 @@ test("un encargado de sector no carga Fichas F01 (403)", async () => {
   await assert.rejects(api.recibir(cuerpo({}, "6f1c2a9e-1111-4222-8333-0000000e0003"), { sesion: { inspector_id: 3 } }), (e) => e.estado === 403);
   assert.equal(db.x_hys_ficha.length, 0);
 });
+
+test("distancia a Posadas: obligatoria, 0–2000 km y se redondea a entero", () => {
+  const campos = { ficha: { x_ot_id: {}, x_distancia_km: {}, x_centro_salud: {}, x_riesgo_ids: {} }, hito: {} };
+  const riesgos = new Set([1]);
+  const v = (km) => validarFicha({ formulario: "F01", idempotency_key: K, odoo: { model: "x_hys_ficha", method: "create", vals: {
+    x_ot_id: 501, x_centro_salud: "H", x_riesgo_ids: [[6, 0, [1]]], ...(km === undefined ? {} : { x_distancia_km: km }) } } }, campos, riesgos);
+  for (const km of [undefined, null, "", false]) assert.match(v(km).errores.find((e) => e.campo === "x_distancia_km")?.mensaje || "", /obligatoria/, String(km));
+  for (const km of [-1, 2001, "abc"]) assert.match(v(km).errores.find((e) => e.campo === "x_distancia_km")?.mensaje || "", /inválida/, String(km));
+  const ok = v("62.6"); assert.equal(ok.errores.length, 0); assert.equal(ok.vals.x_distancia_km, 63);
+  assert.equal(v(0).errores.length, 0);
+});
