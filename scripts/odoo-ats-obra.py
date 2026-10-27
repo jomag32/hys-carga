@@ -137,15 +137,10 @@ def patch_views():
             log(f"vista {v['id']} {v['name']} ya menciona x_ot_id")
             continue
         if v["type"] in ("tree", "list"):
-            if 'name="x_sector"' in arch:
-                nuevo = arch.replace(
-                    'name="x_sector"',
-                    'name="x_sector"/><field name="x_ot_id" optional="show"',
-                    1,
-                )
-            else:
-                log(f"vista lista {v['id']}: no se encontró x_sector; revisar a mano")
-                continue
+            # No poner x_ot_id en la lista: Owl ListRenderer rompe si la columna
+            # aparece sin meta del campo (New→descartar). La OF va solo en el form.
+            log(f"vista lista {v['id']} {v['name']}: se deja sin x_ot_id (solo form)")
+            continue
         else:
             # form: después de x_sector
             if 'name="x_sector"' in arch:
