@@ -311,8 +311,10 @@ export async function leerCatalogoAts() {
       codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, critico: !!i.x_critico,
       admite_na: !M.ATS_SIN_NA.includes(i.x_codigo), secuencia: i.x_secuencia, version: i.x_version }));
     const pers = M.EMPLEADOS.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || "" }));
-    return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"]], turnos: M.TURNOS,
-      controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG") }, personas: { deposito: pers, logistica: pers }, min_justificacion_na: 10,
+    return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"], ["obra", "Obra"]], turnos: M.TURNOS,
+      ats_obra_habilitado: true,
+      controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG"), F08_OBRA: ctl("F08_OBRA") },
+      personas: { deposito: pers, logistica: pers, obra: pers }, min_justificacion_na: 10,
       empresas: [{ id: 1, nombre: "Empresa A (ejemplo)", corto: "Coop. El Sol" }, { id: 3, nombre: "Empresa B (ejemplo)", corto: "Cormet" }] });
   }
   const cat = await conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));

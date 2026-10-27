@@ -24,6 +24,7 @@ test("lugares: Obra pide OF; sector/planta no; encargado solo su sector", async 
   assert.deepEqual(enc.map((o) => o.clave), ["deposito"]);
   assert.equal(L.lugarObra({ id: "planta", name: "x" }), null);
   assert.equal(L.lugarObra({ id: 5, name: "OT 5 - X" }).tipo, "obra");
+  assert.equal(L.SECTORES_ATS.obra.nombre, "Obra");
 });
 
 test("GPS: precisión > umbral marca impreciso sin cambiar estado Odoo", async () => {

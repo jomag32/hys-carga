@@ -6,15 +6,16 @@
 //   · obra real: { id: <núm project.project>, name, ot?, tipo: "obra", ... }
 //   · sector F08: { id: "sector:deposito"|"sector:logistica", name, tipo: "sector", sector }
 //   · planta (F03/F04): { id: "planta", name, tipo: "planta" }
-// F08 ATS en Odoo (x_hys_ats.x_sector) solo admite deposito|logistica: «Obra» es lugar de
-// ingreso, NO un valor de x_sector del ATS (haría falta cambiar Odoo + plantilla + turnos).
+// ATS de obra (sector «obra» + x_ot_id): BORRADOR 27/10/2026. El backend lo ofrece solo
+// si Odoo ya tiene el valor / campo, o en modo ejemplo. Ver odoo-cambios-ats-obra.md.
 
 import { LUGAR_PLANTA } from "../api/datos-mock.js";
 
 /** Sectores de ATS F08 (mismos códigos que backend/ats.js SECTORES). */
 export const SECTORES_ATS = {
   deposito: { codigo: "deposito", nombre: "Depósito Central" },
-  logistica: { codigo: "logistica", nombre: "Logística y Mantenimiento" }
+  logistica: { codigo: "logistica", nombre: "Logística y Mantenimiento" },
+  obra: { codigo: "obra", nombre: "Obra" }
 };
 
 /** Opciones del paso «¿Dónde estás?» del ingreso (inspectores HyS). */
@@ -31,11 +32,12 @@ export const esObraReal = (obra) => !!obra && Number.isInteger(obra.id);
 /** ¿El lugar de la sesión es un sector de planta (sin OF)? */
 export const esSectorSesion = (obra) => !!obra && (obra.tipo === "sector" || String(obra.id || "").startsWith("sector:"));
 
-/** Código de sector ATS (deposito|logistica) si la sesión está en uno; si no, null. */
+/** Código de sector ATS (deposito|logistica|obra) si la sesión está en uno de planta; si no, null.
+ *  En obra real (OF) el sector ATS se elige en F08 (típicamente «obra»). */
 export function sectorDeSesion(obra) {
   if (!obra) return null;
   if (obra.sector && SECTORES_ATS[obra.sector]) return obra.sector;
-  const m = /^sector:(deposito|logistica)$/.exec(String(obra.id || ""));
+  const m = /^sector:(deposito|logistica|obra)$/.exec(String(obra.id || ""));
   return m ? m[1] : null;
 }
 

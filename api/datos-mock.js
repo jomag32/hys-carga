@@ -108,7 +108,17 @@ export const ITEMS_PLANTILLA = [
   {"id": 87, "x_codigo": "F08L-07", "x_formulario": "F08_LOG", "x_bloque": "Chequeo antes de empezar (ATS-LOG-MANT-001)", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 7, "x_name": "Resguardos, cables, fichas y accesorios en condiciones", "x_active": true, "x_version": "PR-HYS-001 v1"},
   {"id": 88, "x_codigo": "F08L-08", "x_formulario": "F08_LOG", "x_bloque": "Chequeo antes de empezar (ATS-LOG-MANT-001)", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 8, "x_name": "Aislamiento / bloqueo de energías y permisos, cuando aplique", "x_active": true, "x_version": "PR-HYS-001 v1"},
   {"id": 89, "x_codigo": "F08L-09", "x_formulario": "F08_LOG", "x_bloque": "Chequeo antes de empezar (ATS-LOG-MANT-001)", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 9, "x_name": "Lubricantes y químicos identificados; sin derrames", "x_active": true, "x_version": "PR-HYS-001 v1"},
-  {"id": 90, "x_codigo": "F08L-10", "x_formulario": "F08_LOG", "x_bloque": "Chequeo antes de empezar (ATS-LOG-MANT-001)", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 10, "x_name": "EPP y controles específicos disponibles", "x_active": true, "x_version": "PR-HYS-001 v1"}
+  {"id": 90, "x_codigo": "F08L-10", "x_formulario": "F08_LOG", "x_bloque": "Chequeo antes de empezar (ATS-LOG-MANT-001)", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 10, "x_name": "EPP y controles específicos disponibles", "x_active": true, "x_version": "PR-HYS-001 v1"},
+  {"id": 91, "x_codigo": "F08O-01", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 1, "x_name": "Personal instruido y tareas del turno informadas", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 92, "x_codigo": "F08O-02", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 2, "x_name": "EPP completo según la tarea (casco, calzado, guantes, anteojos; arnés si hay altura)", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 93, "x_codigo": "F08O-03", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 3, "x_name": "Trabajo en altura: andamios, escaleras, plataformas y línea de vida verificados", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 94, "x_codigo": "F08O-04", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 4, "x_name": "Izaje / hidrogrúa de terceros: operador habilitado, eslingas OK, área señalizada", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 95, "x_codigo": "F08O-05", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 5, "x_name": "Soldadura / corte / amolado: área despejada, pantallas y extintor a mano", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 96, "x_codigo": "F08O-06", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 6, "x_name": "Riesgo eléctrico: tableros, cables, fichas y herramientas en condiciones", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 97, "x_codigo": "F08O-07", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 7, "x_name": "Excavaciones / zanjas: taludes, apuntalamiento y accesos seguros (N/A si no hay)", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 98, "x_codigo": "F08O-08", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 8, "x_name": "Señalización y delimitación de la zona de trabajo (peatonal y vehicular)", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 99, "x_codigo": "F08O-09", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": false, "x_secuencia": 9, "x_name": "Orden y limpieza: acopios estables, vías libres, sin materiales sueltos en altura", "x_active": true, "x_version": "BORRADOR 2026-10-27"},
+  {"id": 100, "x_codigo": "F08O-10", "x_formulario": "F08_OBRA", "x_bloque": "Chequeo antes de empezar (ATS-OBRA-001) · BORRADOR", "x_riesgo_id": false, "x_critico": true, "x_secuencia": 10, "x_name": "Permisos de trabajo / trabajo en caliente / aislamiento de energías, cuando aplique", "x_active": true, "x_version": "BORRADOR 2026-10-27"}
 ];
 
 export const CONTROLES_LEGALES = [
@@ -175,10 +185,11 @@ export const DESVIOS = [
 // Mismo formato que GET /api/v1/ats/catalogo → turnos. Datos de EJEMPLO.
 export const TURNOS = [
   {id: 1, codigo: "jornada", nombre: "Jornada", sector: "deposito", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: 17, autoriza_id: 18, codigo_ats: "ATS-DEP-001"},
-  {id: 2, codigo: "jornada", nombre: "Jornada", sector: "logistica", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: null, autoriza_id: 19, codigo_ats: "ATS-LOG-MANT-001"}
+  {id: 2, codigo: "jornada", nombre: "Jornada", sector: "logistica", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: null, autoriza_id: 19, codigo_ats: "ATS-LOG-MANT-001"},
+  {id: 3, codigo: "jornada", nombre: "Jornada", sector: "obra", inicio: "07:00", dias: [0, 1, 2, 3, 4], encargado_id: 17, autoriza_id: 18, codigo_ats: "ATS-OBRA-001"}
 ];
 // ★ que NO admiten N/A (decisión D-05). El resto admite N/A con justificación.
-export const ATS_SIN_NA = ["F08D-04", "F08D-05", "F08D-06", "F08D-07", "F08D-09", "F08L-06", "F08L-07"];
+export const ATS_SIN_NA = ["F08D-04", "F08D-05", "F08D-06", "F08D-07", "F08D-09", "F08L-06", "F08L-07", "F08O-02", "F08O-03", "F08O-04", "F08O-05", "F08O-06", "F08O-10"];
 
 // ---- Lugar sin OT (Fábrica, Oficina, Depósito Central, Logística y Mantenimiento) ----
 export const LUGAR_PLANTA = {id: "planta", name: "Planta · Fábrica, Oficina, Depósito y Logística"};

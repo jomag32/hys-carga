@@ -13,3 +13,32 @@ const turno={id:1,x_sector:"deposito",x_hora_inicio:7,x_dias:"0,1,2,3,4",x_codig
 const r=validarAts(op.cuerpo,{turno,items,minJustif:10,ahora:Date.parse("2026-10-20T10:00:00Z")});
 assert.equal(op.endpoint, "/ats"); assert.deepEqual(r.errores, []);
 });
+
+test("vista F08 obra: manda x_ot_id y valida con plantilla F08_OBRA", async () => {
+  globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  globalThis.navigator = { onLine: true };
+  globalThis.window = globalThis;
+  globalThis.location = { search: "?obras=ejemplo", hostname: "x" };
+  const v = (await import("../vistas/f08-ats-turno.js")).default;
+  const { leerCatalogoAts } = await import("../api/odoo.js");
+  const { validarAts } = await import("../backend/ats.js");
+  const cat = await leerCatalogoAts();
+  assert.ok(cat.controles.F08_OBRA?.length === 10, "mock debe traer F08_OBRA");
+  const ctx = { cat };
+  const d = {
+    sector: "obra", fecha: "2026-10-20", turno: cat.turnos.find((t) => t.sector === "obra"),
+    ot_id: 4146, ot_nombre: "OT 4146 - Ejemplo",
+    actividades: "Montaje estructura", encargado_id: 17, autoriza_id: 18,
+    fuera_rutina: "no", tareas: [], dotacion: 5, charla: "si", resultado: "autorizado",
+    firma_encargado: "data:image/png;base64,AA", firma_autoriza: "data:image/png;base64,AA", respuestas: {}
+  };
+  for (const c of cat.controles.F08_OBRA) d.respuestas[c.codigo] = { respuesta: "si" };
+  const op = v.armar(d, { idempotency_key: "6f1c2a9e-1111-4222-8333-000000000002", fecha_hora_control: "2026-10-20T06:50:00-03:00", gps: { estado: "denegado" } }, ctx);
+  assert.equal(op.cuerpo.odoo.vals.x_sector, "obra");
+  assert.equal(op.cuerpo.odoo.vals.x_ot_id, 4146);
+  const items = cat.controles.F08_OBRA.map((c) => ({ x_codigo: c.codigo, x_name: c.nombre, x_critico: c.critico, x_admite_na: c.admite_na, x_secuencia: c.secuencia, x_formulario: "F08_OBRA" }));
+  const turno = { id: d.turno.id, x_sector: "obra", x_hora_inicio: 7, x_dias: "0,1,2,3,4", x_codigo_ats: "ATS-OBRA-001" };
+  const r = validarAts(op.cuerpo, { turno, items, minJustif: 10, ahora: Date.parse("2026-10-20T10:00:00Z") });
+  assert.deepEqual(r.errores, []);
+  assert.equal(r.vals.x_ot_id, 4146);
+});

@@ -1,16 +1,29 @@
-// F08 · ATS de turno sectorial (piloto Depósito Central y Logística y Mantenimiento).
-// Decisiones D-01…D-16 aceptadas por Jorge el 20/10/2026 (F08-plan-implementacion-2026-10-20.md).
-//   GET  /api/v1/ats/catalogo        → turnos (x_hys_turno), controles (x_hys_item_plantilla F08_DEP/F08_LOG), personas del sector (hr.employee)
-//                                      y empresas para el encabezado del PDF (res.company, ODOO_ATS_EMPRESAS_IDS)
-//   GET  /api/v1/ats?sector=&fecha=  → ATS de ese sector y día [{id, name, turno_id, resultado}] (aviso «ya hay ATS»)
-//   POST /api/v1/ats                 → create de x_hys_ats + x_linea_ids + x_tarea_ids con MIA (idempotente)
-// Todo con sesión de inspector (Bearer, como /fichas). Puede cargar un x_hys_inspector con x_rol «encargado»
-// de ESE sector, o un inspector HyS. Número ATS-AAAA-NNNNN, validación dura y avisos: automatizaciones de Odoo.
+// F08 · ATS de turno sectorial (piloto Depósito / Logística; obra BORRADOR 27/10/2026).
+// Decisiones D-01…D-16 (20/10/2026). ATS de obra: sector «obra» + x_ot_id → OF (project.project).
+//   GET  /api/v1/ats/catalogo        → turnos, controles F08_DEP/F08_LOG(/F08_OBRA si habilitado), personas, empresas
+//   GET  /api/v1/ats?sector=&fecha=  → ATS del día
+//   POST /api/v1/ats                 → create x_hys_ats (+ x_ot_id si obra)
+// HYS_ATS_OBRA=1|0 fuerza obra; vacío = auto (fields_get: valor «obra» en x_sector + campo x_ot_id).
+// Con el Odoo de hoy (solo deposito|logistica, sin x_ot_id) el sector obra no sale del catálogo.
 import { ErrorOdoo } from "./odoo.js";
 import { ErrorEntrada } from "./inspecciones.js";
 import { textoInspector } from "./catalogos.js";
 
-export const SECTORES = { deposito: { nombre: "Depósito Central", plantilla: "F08_DEP" }, logistica: { nombre: "Logística y Mantenimiento", plantilla: "F08_LOG" } };
+export const SECTORES_PLANTA = {
+  deposito: { nombre: "Depósito Central", plantilla: "F08_DEP" },
+  logistica: { nombre: "Logística y Mantenimiento", plantilla: "F08_LOG" }
+};
+export const SECTOR_OBRA = { obra: { nombre: "Obra", plantilla: "F08_OBRA", requiere_ot: true } };
+/** Todos los sectores que el código conoce (planta + obra). */
+export const SECTORES = { ...SECTORES_PLANTA, ...SECTOR_OBRA };
+
+/** HYS_ATS_OBRA: "1" fuerza; "0" apaga; vacío = auto vía fields_get de Odoo. */
+export function leerFlagAtsObra(env = process.env) {
+  const v = String(env.HYS_ATS_OBRA ?? "").trim().toLowerCase();
+  if (["1", "true", "si", "sí", "yes"].includes(v)) return true;
+  if (["0", "false", "no"].includes(v)) return false;
+  return null;
+}
 export const RESULTADOS = ["autorizado", "autorizado_correccion", "no_autorizado"];
 const GRAVEDADES = ["critico", "mayor", "menor"];
 const GPS_ESTADOS = ["ok", "denegado", "sin_posicion", "no_disponible"];
@@ -63,7 +76,7 @@ export function validarAts(cuerpo, ctx) {
   const { turno, items, personas, empresas = null, minJustif = 10, ahora = Date.now() } = ctx;
 
   // 1-2 · sector, turno y fecha
-  if (!SECTORES[v.x_sector]) mal("x_sector", "Sector inválido (Depósito Central o Logística y Mantenimiento)");
+  if (!SECTORES[v.x_sector]) mal("x_sector", "Sector inválido (Depósito, Logística u Obra)");
   if (!turno) mal("x_turno_id", "El turno no existe o está archivado: recargá la app");
   else if (turno.x_sector !== v.x_sector) mal("x_turno_id", "Ese turno es de otro sector");
   if (!esDia(v.x_fecha)) mal("x_fecha", "Fecha del turno inválida");
@@ -80,6 +93,12 @@ export function validarAts(cuerpo, ctx) {
   // Empresa del encabezado del PDF (opcional: vacía → la del encargado en Odoo)
   const emp = v.x_empresa_id;
   if (emp !== undefined && emp !== null && emp !== false && (!Number.isInteger(emp) || !empresas || !empresas.has(emp))) mal("x_empresa_id", "Empresa inválida: elegí Coop. El Sol o Cormet (recargá la app)");
+
+  // OF (project.project): obligatoria solo en ATS de obra
+  const otId = v.x_ot_id;
+  if (v.x_sector === "obra") {
+    if (!Number.isInteger(otId) || otId <= 0) mal("x_ot_id", "El ATS de obra necesita la OF (proyecto) de la sesión");
+  }
 
   // 10 · personas
   for (const [k, n] of [["x_encargado_id", "el encargado"], ["x_autoriza_id", "quién autoriza"]]) {
@@ -162,6 +181,7 @@ export function validarAts(cuerpo, ctx) {
     if (Number.isFinite(control)) vals.x_antes_de_turno = control <= ini;
   }
   if (Number.isInteger(emp) && empresas?.has(emp)) vals.x_empresa_id = emp;
+  if (v.x_sector === "obra" && Number.isInteger(otId) && otId > 0) vals.x_ot_id = otId;
   if (turno?.x_codigo_ats) vals.x_codigo_ats = turno.x_codigo_ats;
   if (Number.isInteger(v.x_ats_anterior_id) && v.x_ats_anterior_id > 0) vals.x_ats_anterior_id = v.x_ats_anterior_id;
   return { errores, vals };
@@ -174,17 +194,34 @@ export function puedeCargar(insp, sector) {
   return true; // inspector HyS (x_rol vacío = inspector, registros anteriores)
 }
 
-export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf(), empresasIds = leerEmpresas() } = {}) {
+export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf(), empresasIds = leerEmpresas(), flagObra = leerFlagAtsObra() } = {}) {
   let cat = null, catHasta = 0, catEnCurso = null;
+  let obraOkCache = null; // null = aún no consultado
   const porClave = new Map(), enCurso = new Map();
   let cola = Promise.resolve();
   const enSerie = (fn) => { const p = cola.then(fn, fn); cola = p.catch(() => {}); return p; };
   const ej = (...a) => cliente().ejecutar(...a);
 
+  /** ¿Odoo ya tiene sector obra + x_ot_id? (o HYS_ATS_OBRA fuerza). */
+  async function obraHabilitada() {
+    if (flagObra === true) return true;
+    if (flagObra === false) return false;
+    if (obraOkCache !== null) return obraOkCache;
+    try {
+      const fg = await ej("x_hys_ats", "fields_get", [["x_sector", "x_ot_id"]], { attributes: ["selection", "type"] });
+      const sel = (fg?.x_sector?.selection || []).map((p) => p[0]);
+      obraOkCache = sel.includes("obra") && !!fg?.x_ot_id;
+    } catch (e) {
+      console.log("ats: no se pudo detectar soporte de obra", e instanceof ErrorOdoo ? e.message : e?.name);
+      obraOkCache = false;
+    }
+    return obraOkCache;
+  }
+
   async function leerCatalogoOdoo() {
     const [turnos, items, cfg] = await Promise.all([
       ej("x_hys_turno", "search_read", [[["x_active", "=", true]]], { fields: ["id", "x_name", "x_codigo", "x_sector", "x_hora_inicio", "x_dias", "x_encargado_id", "x_autoriza_id", "x_codigo_ats", "x_secuencia"], order: "x_sector, x_secuencia, id" }),
-      ej("x_hys_item_plantilla", "search_read", [[["x_formulario", "in", ["F08_DEP", "F08_LOG"]], ["x_active", "=", true]]], { fields: ["id", "x_codigo", "x_name", "x_formulario", "x_bloque", "x_critico", "x_secuencia", "x_admite_na", "x_version"], order: "x_formulario, x_secuencia, id" }),
+      ej("x_hys_item_plantilla", "search_read", [[["x_formulario", "in", ["F08_DEP", "F08_LOG", "F08_OBRA"]], ["x_active", "=", true]]], { fields: ["id", "x_codigo", "x_name", "x_formulario", "x_bloque", "x_critico", "x_secuencia", "x_admite_na", "x_version"], order: "x_formulario, x_secuencia, id" }),
       ej("x_hys_config", "search_read", [[]], { fields: ["x_ats_min_justif", "x_ats_horas_tardia"], limit: 1 })]);
     // Empresas: si la cuenta no puede leer alguna, se ofrece igual con su id (Odoo valida al guardar).
     const comp = empresasIds.length ? await ej("res.company", "search_read", [[["id", "in", empresasIds]]], { fields: ["id", "name"] })
@@ -217,24 +254,29 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     return catEnCurso;
   }
 
-  /** Formato para el celular. */
+  /** Formato para el celular. Solo incluye «obra» si Odoo/flag lo habilita. */
   async function catalogo() {
     const c = await catalogoInterno();
+    const obraOk = await obraHabilitada();
+    const sectoresActivos = Object.entries(SECTORES).filter(([codigo]) => codigo !== "obra" || obraOk);
     const it = (f) => c.items.filter((x) => x.x_formulario === f).map((x) => ({ codigo: x.x_codigo, nombre: x.x_name, bloque: x.x_bloque, critico: !!x.x_critico,
       admite_na: x.x_admite_na !== false, secuencia: x.x_secuencia, version: x.x_version || null }));
+    const controles = { F08_DEP: it("F08_DEP"), F08_LOG: it("F08_LOG") };
+    if (obraOk) controles.F08_OBRA = it("F08_OBRA");
     return {
-      sectores: Object.entries(SECTORES).map(([codigo, s]) => ({ codigo, nombre: s.nombre, plantilla: s.plantilla })),
-      turnos: c.turnos.map((t) => ({ id: t.id, codigo: t.x_codigo, nombre: t.x_name, sector: t.x_sector, inicio: horaTexto(t.x_hora_inicio),
+      sectores: sectoresActivos.map(([codigo, s]) => ({ codigo, nombre: s.nombre, plantilla: s.plantilla })),
+      ats_obra_habilitado: obraOk,
+      turnos: c.turnos.filter((t) => t.x_sector !== "obra" || obraOk).map((t) => ({ id: t.id, codigo: t.x_codigo, nombre: t.x_name, sector: t.x_sector, inicio: horaTexto(t.x_hora_inicio),
         dias: String(t.x_dias || "").split(",").map((d) => Number(d.trim())).filter((d) => d >= 0 && d <= 6),
         encargado_id: m2oId(t.x_encargado_id), autoriza_id: m2oId(t.x_autoriza_id), codigo_ats: t.x_codigo_ats || null })),
-      controles: { F08_DEP: it("F08_DEP"), F08_LOG: it("F08_LOG") },
+      controles,
       personas: c.personas, min_justificacion_na: c.minJustif,
       empresas: c.empresas.map((e) => ({ id: e.id, nombre: e.nombre, corto: nombreCorto(e.nombre) }))
     };
   }
 
   async function delDia(sector, fecha) {
-    if (!SECTORES[sector] || !esDia(fecha)) throw new ErrorEntrada(400, "?sector=deposito|logistica&fecha=AAAA-MM-DD");
+    if (!SECTORES[sector] || !esDia(fecha)) throw new ErrorEntrada(400, "?sector=deposito|logistica|obra&fecha=AAAA-MM-DD");
     const r = await ej("x_hys_ats", "search_read", [[["x_sector", "=", sector], ["x_fecha", "=", fecha], ["x_active", "=", true]]],
       { fields: ["id", "x_name", "x_turno_id", "x_resultado"], order: "id" });
     return r.map((a) => ({ id: a.id, name: a.x_name || null, turno_id: m2oId(a.x_turno_id), resultado: a.x_resultado }));
@@ -258,6 +300,10 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     const p = (async () => {
       const c = await catalogoInterno();
       const v = cuerpo?.odoo?.vals || {};
+      if (v.x_sector === "obra" && !(await obraHabilitada())) {
+        throw new ErrorEntrada(503, "El ATS de obra todavía no está habilitado en Odoo (falta el sector «obra» y el campo x_ot_id). Avisá a HyS.",
+          { codigo: "ats_obra_no_habilitado" });
+      }
       const turno = c.turnos.find((t) => t.id === v.x_turno_id) || null;
       const items = c.items.filter((x) => x.x_formulario === SECTORES[v.x_sector]?.plantilla);
       const personas = c.filtrado ? new Set((c.personas[v.x_sector] || []).map((x) => x.id)) : null;
@@ -323,7 +369,7 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     return { pdf: buf, nombre };
   }
 
-  return { catalogo, delDia, recibir, pdf, olvidar: () => { cat = null; } };
+  return { catalogo, delDia, recibir, pdf, obraHabilitada, olvidar: () => { cat = null; obraOkCache = null; } };
 }
 
 /** ODOO_ATS_PDF_ACCION_ID = id de la acción de servidor «HyS · PDF del ATS (backend)» en Odoo. Sin ella, el PDF responde 503. */

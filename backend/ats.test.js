@@ -1,17 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { crearAts, validarAts, inicioTurno, diaOdoo, hoyAr, puedeCargar, huella, instante, leerEmpresas, nombreCorto } from "./ats.js";
+import { crearAts, validarAts, inicioTurno, diaOdoo, hoyAr, puedeCargar, huella, instante, leerEmpresas, nombreCorto, leerFlagAtsObra, SECTORES } from "./ats.js";
 
 // Odoo simulado (datos de EJEMPLO, repo público).
 const AHORA = Date.parse("2026-10-20T06:50:00-03:00"); // martes, 06:50 de Argentina
 const TURNOS = [
   { id: 1, x_name: "Jornada", x_codigo: "jornada", x_sector: "deposito", x_hora_inicio: 7, x_dias: "0,1,2,3,4", x_encargado_id: [17, "Encargado Ejemplo"], x_autoriza_id: [18, "Gerencia Ejemplo"], x_codigo_ats: "ATS-DEP-001", x_secuencia: 10 },
-  { id: 2, x_name: "Jornada", x_codigo: "jornada", x_sector: "logistica", x_hora_inicio: 7, x_dias: "0,1,2,3,4", x_encargado_id: false, x_autoriza_id: false, x_codigo_ats: "ATS-LOG-MANT-001", x_secuencia: 10 }];
+  { id: 2, x_name: "Jornada", x_codigo: "jornada", x_sector: "logistica", x_hora_inicio: 7, x_dias: "0,1,2,3,4", x_encargado_id: false, x_autoriza_id: false, x_codigo_ats: "ATS-LOG-MANT-001", x_secuencia: 10 },
+  { id: 3, x_name: "Jornada", x_codigo: "jornada", x_sector: "obra", x_hora_inicio: 7, x_dias: "0,1,2,3,4", x_encargado_id: [17, "Encargado Ejemplo"], x_autoriza_id: [18, "Gerencia Ejemplo"], x_codigo_ats: "ATS-OBRA-001", x_secuencia: 10 }];
 const ITEMS = [
   ...Array.from({ length: 10 }, (_, i) => ({ id: i + 1, x_codigo: `F08D-${String(i + 1).padStart(2, "0")}`, x_name: `Control depósito ${i + 1}`, x_formulario: "F08_DEP",
     x_bloque: "Chequeo", x_critico: [4, 5, 6, 7, 9].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![4, 5, 6, 7, 9].includes(i + 1), x_version: "v1" })),
   ...Array.from({ length: 10 }, (_, i) => ({ id: i + 11, x_codigo: `F08L-${String(i + 1).padStart(2, "0")}`, x_name: `Control logística ${i + 1}`, x_formulario: "F08_LOG",
-    x_bloque: "Chequeo", x_critico: [6, 7, 8].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![6, 7].includes(i + 1), x_version: "v1" }))];
+    x_bloque: "Chequeo", x_critico: [6, 7, 8].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![6, 7].includes(i + 1), x_version: "v1" })),
+  ...Array.from({ length: 10 }, (_, i) => ({ id: i + 21, x_codigo: `F08O-${String(i + 1).padStart(2, "0")}`, x_name: `Control obra ${i + 1}`, x_formulario: "F08_OBRA",
+    x_bloque: "Chequeo · BORRADOR", x_critico: [2, 3, 4, 5, 6, 10].includes(i + 1), x_secuencia: (i + 1) * 10, x_admite_na: ![2, 3, 4, 5, 6, 10].includes(i + 1), x_version: "BORRADOR" }))];
 const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado", company_id: [3, "CORMET EJEMPLO"] }, { id: 16, name: "Otra Persona Ejemplo", job_title: "Operario", company_id: [1, "COOP. EL SOL EJEMPLO"] }];
 const EMPRESAS = [{ id: 1, name: "COOP. EL SOL EJEMPLO" }, { id: 3, name: "CORMET EJEMPLO" }, { id: 2, name: "OTRA EMPRESA" }]; // 18 no se puede leer (regla de RR. HH.)
 const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_rol: "inspector", x_active: true },
@@ -20,7 +23,7 @@ const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_r
 const K = (n) => `6f1c2a9e-1111-4222-8333-${String(n).padStart(12, "0")}`;
 const FOTO = "data:image/jpeg;base64,AAAA";
 
-function armar({ previos = [], ahora = AHORA } = {}) {
+function armar({ previos = [], ahora = AHORA, flagObra = false, odooTieneObra = false } = {}) {
   const db = { x_hys_ats: previos.map((a) => ({ ...a })), x_hys_ats_linea: [] };
   const llamadas = [];
   const val = (r, c) => (Array.isArray(r[c]) ? r[c][0] : r[c]);
@@ -33,6 +36,14 @@ function armar({ previos = [], ahora = AHORA } = {}) {
   const ejecutar = async (m, met, args = [], kw = {}) => {
     llamadas.push({ m, met, args, kw });
     if (met === "message_post") return true;
+    if (met === "fields_get") {
+      const sel = odooTieneObra
+        ? [["deposito", "Depósito"], ["logistica", "Logística"], ["obra", "Obra"]]
+        : [["deposito", "Depósito"], ["logistica", "Logística"]];
+      const out = { x_sector: { selection: sel, type: "selection" } };
+      if (odooTieneObra) out.x_ot_id = { type: "many2one" };
+      return out;
+    }
     if (met === "create") {
       const v = args[0][0]; const id = 100 + db.x_hys_ats.length;
       db.x_hys_ats.push({ ...v, id, x_name: `ATS-2026-${String(id).padStart(5, "0")}`, x_turno_id: [v.x_turno_id, "Jornada"], x_linea_ids: v.x_linea_ids.map((_, i) => id * 100 + i) });
@@ -47,14 +58,16 @@ function armar({ previos = [], ahora = AHORA } = {}) {
     if (m === "x_hys_ats" && kw.order === "id desc") r = [...r].sort((a, b) => b.id - a.id);
     return kw.limit ? r.slice(0, kw.limit) : r;
   };
-  const api = crearAts(() => ({ ejecutar }), { departamentos: null, ahora: () => ahora, empresasIds: [1, 3] });
+  const api = crearAts(() => ({ ejecutar }), { departamentos: null, ahora: () => ahora, empresasIds: [1, 3], flagObra });
   return { api, db, llamadas };
 }
 
 function cuerpo(cambios = {}, { sector = "deposito", clave = K(1), lineas } = {}) {
-  const items = ITEMS.filter((x) => x.x_formulario === (sector === "deposito" ? "F08_DEP" : "F08_LOG"));
+  const plantilla = { deposito: "F08_DEP", logistica: "F08_LOG", obra: "F08_OBRA" }[sector];
+  const turnoId = { deposito: 1, logistica: 2, obra: 3 }[sector];
+  const items = ITEMS.filter((x) => x.x_formulario === plantilla);
   const vals = {
-    x_sector: sector, x_turno_id: sector === "deposito" ? 1 : 2, x_fecha: "2026-10-20", x_fecha_hora_control: "2026-10-20T09:50:00.000Z",
+    x_sector: sector, x_turno_id: turnoId, x_fecha: "2026-10-20", x_fecha_hora_control: "2026-10-20T09:50:00.000Z",
     x_actividades: "Descarga de chapas de ejemplo", x_encargado_id: 17, x_autoriza_id: 18, x_fuera_rutina: "no", x_tarea_ids: [],
     x_dotacion: 4, x_charla_previa: true, x_resultado: "autorizado", x_firma_encargado: FOTO, x_firma_autoriza: FOTO,
     x_gps_estado: "denegado", x_gps_lat: false, x_gps_lon: false,
@@ -236,4 +249,59 @@ test("leerEmpresas: por defecto 1,3; configurable", () => {
   assert.deepEqual(leerEmpresas({}), [1, 3]);
   assert.deepEqual(leerEmpresas({ ODOO_ATS_EMPRESAS_IDS: "1, 2,x,2" }), [1, 2]);
   assert.equal(nombreCorto("CORMET S.A."), "Cormet");
+});
+
+test("leerFlagAtsObra y SECTORES incluyen obra", () => {
+  assert.equal(leerFlagAtsObra({}), null);
+  assert.equal(leerFlagAtsObra({ HYS_ATS_OBRA: "1" }), true);
+  assert.equal(leerFlagAtsObra({ HYS_ATS_OBRA: "0" }), false);
+  assert.ok(SECTORES.obra);
+  assert.equal(SECTORES.obra.plantilla, "F08_OBRA");
+});
+
+test("catálogo sin obra por defecto (Odoo de hoy); con flag/odoo sí", async () => {
+  const a = armar({ flagObra: false });
+  const c = await a.api.catalogo();
+  assert.equal(c.ats_obra_habilitado, false);
+  assert.ok(!c.sectores.some((s) => s.codigo === "obra"));
+  assert.equal(c.controles.F08_OBRA, undefined);
+  assert.ok(!c.turnos.some((t) => t.sector === "obra"));
+
+  const b = armar({ flagObra: true });
+  const c2 = await b.api.catalogo();
+  assert.equal(c2.ats_obra_habilitado, true);
+  assert.ok(c2.sectores.some((s) => s.codigo === "obra"));
+  assert.equal(c2.controles.F08_OBRA.length, 10);
+  assert.ok(c2.turnos.some((t) => t.sector === "obra" && t.codigo_ats === "ATS-OBRA-001"));
+
+  const d = armar({ flagObra: null, odooTieneObra: true });
+  const c3 = await d.api.catalogo();
+  assert.equal(c3.ats_obra_habilitado, true);
+});
+
+test("POST obra sin flag → 503; con flag exige x_ot_id y lo guarda", async () => {
+  const off = armar({ flagObra: false });
+  await err(off.api.recibir(cuerpo({ x_ot_id: 4146 }, { sector: "obra" }), { sesion: SES }), 503, /ATS de obra/);
+
+  const { api, db } = armar({ flagObra: true });
+  await err(api.recibir(cuerpo({}, { sector: "obra" }), { sesion: SES }), 422, /OF/);
+  const r = await api.recibir(cuerpo({ x_ot_id: 4146, x_actividades: "Montaje de estructura en obra ejemplo" }, { sector: "obra", clave: K(90) }), { sesion: SES });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_ats[0].x_sector, "obra");
+  assert.equal(db.x_hys_ats[0].x_ot_id, 4146);
+  assert.equal(db.x_hys_ats[0].x_codigo_ats, "ATS-OBRA-001");
+  assert.equal(db.x_hys_ats[0].x_linea_ids.length, 10);
+});
+
+test("validarAts: obra sin OF falla; planta ignora x_ot_id", () => {
+  const items = ITEMS.filter((x) => x.x_formulario === "F08_OBRA");
+  const turno = TURNOS.find((t) => t.id === 3);
+  const base = cuerpo({ x_ot_id: 4146 }, { sector: "obra" });
+  const ok = validarAts(base, { turno, items, personas: null, empresas: new Set([1, 3]), minJustif: 10, ahora: AHORA });
+  assert.equal(ok.errores.length, 0);
+  assert.equal(ok.vals.x_ot_id, 4146);
+  const sin = cuerpo({}, { sector: "obra" });
+  delete sin.odoo.vals.x_ot_id;
+  const bad = validarAts(sin, { turno, items, personas: null, empresas: null, minJustif: 10, ahora: AHORA });
+  assert.ok(bad.errores.some((e) => e.campo === "x_ot_id"));
 });

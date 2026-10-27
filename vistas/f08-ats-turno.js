@@ -6,9 +6,9 @@
 // Empresa (Coop. El Sol / Cormet): sale en el encabezado del PDF. Se recuerda la última elegida en el celular;
 // si no hay, se propone la empresa del encargado (si el catálogo la trae).
 // El desvío formal lo abre HyS desde Odoo (D-08): el formulario no crea x_hys_desvio.
-// El ingreso elige sector/lugar ANTES de la OF (27/10/2026): si la sesión es Depósito/Logística se
-// preselecciona ese sector. «Obra» en el ingreso NO es un x_sector de ATS (Odoo solo admite
-// deposito|logistica); el ATS no guarda OF (no hay x_ot_id en x_hys_ats).
+// Ingreso: sector/lugar ANTES de la OF (27/10/2026). Si la sesión es Depósito/Logística se
+// preselecciona ese sector. Si la sesión es obra (OF), F08 ofrece sector «Obra» (cuando el
+// catálogo lo trae), usa la OF de la sesión y manda x_ot_id. Controles de obra = BORRADOR.
 
 import { h } from "../componentes/util.js";
 import { campoOpciones, campoSelect, campoTexto, campoArea, campoFirma, aviso } from "../componentes/campos.js";
@@ -17,12 +17,31 @@ import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } fr
 import { camposControl, hoyIso } from "../componentes/campos-auto.js";
 import { leerCatalogoAts, leerAtsDelDia } from "../api/odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
-import { sectorDeSesion, esObraReal } from "../componentes/lugares.js";
+import { sectorDeSesion, esObraReal, lugarCorto } from "../componentes/lugares.js";
 
-const PLANTILLA = { deposito: "F08_DEP", logistica: "F08_LOG" };
-const DETENCION = "No iniciar o suspender ante fugas, cargas inestables, equipos dañados, resguardos ausentes, falta de aislamiento de energía, tránsito sin control, derrames no controlados, incompatibilidades de almacenamiento o falta de controles críticos. Aislar, corregir y verificar antes de autorizar.";
+const PLANTILLA = { deposito: "F08_DEP", logistica: "F08_LOG", obra: "F08_OBRA" };
+const DETENCION_PLANTA = "No iniciar o suspender ante fugas, cargas inestables, equipos dañados, resguardos ausentes, falta de aislamiento de energía, tránsito sin control, derrames no controlados, incompatibilidades de almacenamiento o falta de controles críticos. Aislar, corregir y verificar antes de autorizar.";
+const DETENCION_OBRA = "No iniciar o suspender ante trabajo en altura sin protección, izaje inseguro, soldadura/corte sin controles, riesgo eléctrico, excavaciones sin contención, falta de EPP crítico, permisos faltantes o señalización ausente. Aislar, corregir y verificar antes de autorizar.";
+const DETENCION = DETENCION_PLANTA; // compat; el paso usa detencionDe()
 const RESULTADOS = [["autorizado", "Autorizado", { clase: "verde" }], ["autorizado_correccion", "Autorizado tras corrección", { clase: "naranja" }], ["no_autorizado", "No autorizado", { clase: "rojo" }]];
 const RES_TXT = Object.fromEntries(RESULTADOS.map(([v, t]) => [v, t]));
+const detencionDe = (sector) => (sector === "obra" ? DETENCION_OBRA : DETENCION_PLANTA);
+
+/** Sectores del catálogo visibles según sesión / rol. */
+function sectoresVisibles(cat, solo) {
+  let secs = (cat.sectores || []).filter(([k]) => !solo || k === solo);
+  const s = leerSesion();
+  if (esObraReal(s.obra)) {
+    // En obra: preferir «obra» si el catálogo lo trae; si no (Odoo viejo), mostrar planta con aviso.
+    if (secs.some(([k]) => k === "obra")) secs = secs.filter(([k]) => k === "obra");
+  } else if (sectorDeSesion(s.obra)) {
+    const sec = sectorDeSesion(s.obra);
+    secs = secs.filter(([k]) => k === sec);
+  } else {
+    secs = secs.filter(([k]) => k !== "obra"); // planta genérica: no ofrecer obra sin OF
+  }
+  return secs;
+}
 
 // Ítems del catálogo con la forma que usa el checklist (id = código del control).
 const items = (d, ctx) => (d.sector ? (ctx.cat.controles[PLANTILLA[d.sector]] || []).map((c) => ({
@@ -75,9 +94,11 @@ export default {
   inicial: () => {
     const s = leerSesion();
     const u = s.usuario;
-    // Encargado: su sector. Inspector: el sector del lugar de ingreso si es deposito/logistica.
-    const sector = u?.rol_hys === "encargado" ? (u.sector || null) : (sectorDeSesion(s.obra) || undefined);
-    return { fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no", sector };
+    // Encargado: su sector. Inspector en sector planta: ese. Inspector en OF: «obra» (si el catálogo lo trae).
+    let sector = u?.rol_hys === "encargado" ? (u.sector || null) : (sectorDeSesion(s.obra) || undefined);
+    if (!sector && esObraReal(s.obra)) sector = "obra";
+    return { fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no", sector,
+      ot_id: esObraReal(s.obra) ? s.obra.id : null, ot_nombre: esObraReal(s.obra) ? (s.obra.name || lugarCorto(s.obra)) : null };
   },
   pasos: [
     {
@@ -87,20 +108,33 @@ export default {
         const ya = bloqueante(d);
         const rehace = (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado === "no_autorizado");
         const ponerResponsables = (t) => { d.encargado_id = t.encargado_id || d.encargado_id || null; d.autoriza_id = t.autoriza_id || d.autoriza_id || null; };
-        const enObra = esObraReal(leerSesion().obra);
+        const ses = leerSesion();
+        const enObra = esObraReal(ses.obra);
+        const secs = sectoresVisibles(ctx.cat, soloSector());
+        if (enObra && d.sector === "obra") { d.ot_id = ses.obra.id; d.ot_nombre = ses.obra.name || lugarCorto(ses.obra); }
+        if (d.sector === "obra" && !secs.some(([k]) => k === "obra")) d.sector = undefined; // catálogo sin obra (Odoo viejo)
+        if (d.sector && !secs.some(([k]) => k === d.sector) && secs.length === 1) d.sector = secs[0][0];
+        const obraHabilitada = !!ctx.cat.ats_obra_habilitado || secs.some(([k]) => k === "obra");
         return [
-          enObra && aviso("Ingresaste en una obra (OF). El ATS de turno (F08) es de Depósito o Logística: elegí el sector del turno. La OF no se guarda en el ATS.", "info"),
+          enObra && obraHabilitada && d.sector === "obra" && aviso(`ATS de obra · OF de la sesión: ${d.ot_nombre || lugarCorto(ses.obra)}. Controles BORRADOR (revisión HyS).`, "info"),
+          enObra && !obraHabilitada && aviso("Ingresaste en una obra, pero el ATS de obra todavía no está habilitado en Odoo. Podés cargar ATS de Depósito o Logística; la OF no se guarda en esos ATS.", "alerta"),
+          d.sector === "obra" && (d.ot_nombre || d.ot_id) && aviso(`OF vinculada: ${d.ot_nombre || ("proyecto " + d.ot_id)}`, "info"),
           selectorEmpresa(d, ctx),
-          campoOpciones(d, "sector", "Sector", ctx.cat.sectores.filter(([k]) => !soloSector() || k === soloSector()), {
+          campoOpciones(d, "sector", "Sector", secs, {
             columnas: 2, requerido: true,
-            alCambiar: () => { d.respuestas = {}; d.turno = null; d.encargado_id = null; d.autoriza_id = null; ctx.refrescar(); }
+            alCambiar: () => { d.respuestas = {}; d.turno = null; d.encargado_id = null; d.autoriza_id = null;
+              if (d.sector === "obra" && enObra) { d.ot_id = ses.obra.id; d.ot_nombre = ses.obra.name || lugarCorto(ses.obra); }
+              else if (d.sector !== "obra") { d.ot_id = null; d.ot_nombre = null; }
+              ctx.refrescar(); }
           }),
           campoTexto(d, "fecha", "Fecha del turno", { tipo: "date", requerido: true, alCambiar: () => ctx.refrescar() }),
           d.sector && selectorTurno(d, ctx.cat.turnos, "turno", { alCambiar: (t) => { ponerResponsables(t); proponerEmpresa(d, ctx); ctx.refrescar(); } }),
           ya && aviso(`Ya hay un ATS para este turno (${ya.name || "cargado"}). No se carga otro: si hay que corregirlo, avisá a HyS.`, "error"),
           rehace && aviso(`El ATS anterior de este turno (${rehace.name}) quedó «No autorizado». Este lo reemplaza.`, "alerta")].filter(Boolean);
       },
-      validar: (d, ctx) => (empresas(ctx).length && !d.empresa_id ? "Elegí la empresa." : !d.sector ? "Elegí el sector." : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno."
+      validar: (d, ctx) => (empresas(ctx).length && !d.empresa_id ? "Elegí la empresa." : !d.sector ? "Elegí el sector."
+        : d.sector === "obra" && !Number.isInteger(d.ot_id) ? "El ATS de obra necesita la OF de la sesión: volvé a ingresar eligiendo Obra y la OF."
+        : !d.fecha ? "Cargá la fecha." : !d.turno ? "Elegí el turno."
         : bloqueante(d) ? "Ya hay un ATS para este turno." : null)
     },
     {
@@ -115,7 +149,7 @@ export default {
     },
     {
       titulo: "Controles previos (1 de 2)",
-      dibujar: (d, ctx) => [aviso(DETENCION, "alerta"), checklist(mitad(d, ctx, 1), d, opc(ctx))],
+      dibujar: (d, ctx) => [aviso(detencionDe(d.sector), "alerta"), d.sector === "obra" && aviso("Controles de obra = BORRADOR pendiente de revisión HyS.", "info"), checklist(mitad(d, ctx, 1), d, opc(ctx))].filter(Boolean),
       validar: (d, ctx) => validarChecklist(mitad(d, ctx, 1), d, opc(ctx))
     },
     {
@@ -164,7 +198,9 @@ export default {
   ],
   resumen: (d, ctx) => [
     ...(empresas(ctx).length ? [["Empresa", empresas(ctx).find((e) => e.id === d.empresa_id)?.nombre || ""]] : []),
-    ["Sector", nombreSector(ctx, d.sector)], ["Fecha", d.fecha], ["Turno", d.turno ? `${d.turno.nombre} · ${d.turno.inicio}` : ""],
+    ["Sector", nombreSector(ctx, d.sector)],
+    ...(d.sector === "obra" ? [["OF", d.ot_nombre || (d.ot_id ? `proyecto ${d.ot_id}` : "—")]] : []),
+    ["Fecha", d.fecha], ["Turno", d.turno ? `${d.turno.nombre} · ${d.turno.inicio}` : ""],
     ["Actividades", d.actividades],
     ["Controles", resumenChecklist(items(d, ctx), d)],
     ["Fuera de rutina", d.fuera_rutina === "si" ? `Sí · ${d.tareas.filter((t) => t.paso).length} tarea(s)` : "No"],
@@ -186,6 +222,7 @@ export default {
       x_observaciones: d.observaciones?.trim() || false,
       x_autorizacion_remota: d.remota === "si",
       ...(d.empresa_id ? { x_empresa_id: Number(d.empresa_id) } : {}),
+      ...(d.sector === "obra" && Number.isInteger(d.ot_id) ? { x_ot_id: d.ot_id } : {}),
       x_firma_encargado: d.firma_encargado, x_firma_autoriza: d.remota === "si" ? false : d.firma_autoriza,
       ...control
     };
