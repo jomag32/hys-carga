@@ -49,7 +49,7 @@ def field_id(model, name):
     return ids[0] if ids else None
 
 def selection_values(model, field):
-    fg = c(model, "fields_get", [field], {"attributes": ["selection"]})
+    fg = c(model, "fields_get", [field], attributes=["selection"])
     return list(fg.get(field, {}).get("selection") or [])
 
 def ensure_selection_value(model, field_name, value, label, sequence=90):
@@ -99,7 +99,7 @@ def ensure_items():
             "x_active": True, "x_version": VERSION,
         }
         # x_admite_na si el campo existe
-        fg = c("x_hys_item_plantilla", "fields_get", ["x_admite_na"], {"attributes": ["type"]})
+        fg = c("x_hys_item_plantilla", "fields_get", ["x_admite_na"], attributes=["type"])
         if "x_admite_na" in fg:
             vals["x_admite_na"] = not critico
         log(f"crear ítem {cod} ★={critico}")
@@ -130,7 +130,7 @@ def patch_views():
     """Inserta x_ot_id en form/tree si no está. Best-effort sobre vistas Studio."""
     views = c("ir.ui.view", "search_read", [
         ["model", "=", "x_hys_ats"], ["type", "in", ["form", "tree", "list"]]
-    ], {"fields": ["id", "name", "type", "arch_db"], "limit": 20})
+    ], fields=["id", "name", "type", "arch_db"], limit=20)
     for v in views:
         arch = v.get("arch_db") or ""
         if "x_ot_id" in arch:
@@ -161,7 +161,7 @@ def patch_views():
                 continue
         log(f"actualizar vista {v['id']} {v['name']} (+ x_ot_id)")
         if APLICAR:
-            c("ir.ui.view", "write", [[v["id"]], {"arch_db": nuevo}])
+            c("ir.ui.view", "write", [v["id"]], {"arch_db": nuevo})
 
 def do_backup(path):
     data = {
@@ -170,11 +170,11 @@ def do_backup(path):
         "x_hys_turno.x_sector": selection_values("x_hys_turno", "x_sector"),
         "x_ot_id": bool(field_id("x_hys_ats", "x_ot_id")),
         "items_obra": c("x_hys_item_plantilla", "search_read",
-            [[["x_formulario", "=", "F08_OBRA"]]],
-            {"fields": ["id", "x_codigo", "x_name", "x_active"]}),
+            [["x_formulario", "=", "F08_OBRA"]],
+            fields=["id", "x_codigo", "x_name", "x_active"]),
         "turnos_obra": c("x_hys_turno", "search_read",
-            [[["x_sector", "=", "obra"]]],
-            {"fields": ["id", "x_name", "x_codigo_ats", "x_active"]}),
+            [["x_sector", "=", "obra"]],
+            fields=["id", "x_name", "x_codigo_ats", "x_active"]),
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -186,17 +186,17 @@ def do_rollback(path):
     # Archivar ítems/turno obra creados después del backup
     ids_items_bak = {x["id"] for x in data.get("items_obra") or []}
     ids_turnos_bak = {x["id"] for x in data.get("turnos_obra") or []}
-    items = c("x_hys_item_plantilla", "search", [[["x_formulario", "=", "F08_OBRA"]]])
-    turnos = c("x_hys_turno", "search", [[["x_sector", "=", "obra"]]])
+    items = c("x_hys_item_plantilla", "search", [["x_formulario", "=", "F08_OBRA"]])
+    turnos = c("x_hys_turno", "search", [["x_sector", "=", "obra"]])
     borrar_i = [i for i in items if i not in ids_items_bak]
     borrar_t = [i for i in turnos if i not in ids_turnos_bak]
     log(f"archivar ítems obra nuevos {borrar_i}")
     log(f"archivar turnos obra nuevos {borrar_t}")
     if APLICAR:
         if borrar_i:
-            c("x_hys_item_plantilla", "write", [borrar_i, {"x_active": False}])
+            c("x_hys_item_plantilla", "write", borrar_i, {"x_active": False})
         if borrar_t:
-            c("x_hys_turno", "write", [borrar_t, {"x_active": False}])
+            c("x_hys_turno", "write", borrar_t, {"x_active": False})
         # Quitar selection «obra» si no estaba en el backup
         for model in ("x_hys_ats", "x_hys_turno"):
             prev = {v for v, _ in data.get(f"{model}.x_sector") or []}
@@ -225,6 +225,7 @@ def main():
     print("x_ot_id existe:", bool(field_id("x_hys_ats", "x_ot_id")))
     ensure_selection_value("x_hys_ats", "x_sector", "obra", "Obra", 30)
     ensure_selection_value("x_hys_turno", "x_sector", "obra", "Obra", 30)
+    ensure_selection_value("x_hys_item_plantilla", "x_formulario", "F08_OBRA", "ATS Obra", 25)
     ensure_ot_id()
     ensure_items()
     ensure_turno()
