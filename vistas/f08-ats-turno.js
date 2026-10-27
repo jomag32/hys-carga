@@ -6,6 +6,9 @@
 // Empresa (Coop. El Sol / Cormet): sale en el encabezado del PDF. Se recuerda la última elegida en el celular;
 // si no hay, se propone la empresa del encargado (si el catálogo la trae).
 // El desvío formal lo abre HyS desde Odoo (D-08): el formulario no crea x_hys_desvio.
+// El ingreso elige sector/lugar ANTES de la OF (27/10/2026): si la sesión es Depósito/Logística se
+// preselecciona ese sector. «Obra» en el ingreso NO es un x_sector de ATS (Odoo solo admite
+// deposito|logistica); el ATS no guarda OF (no hay x_ot_id en x_hys_ats).
 
 import { h } from "../componentes/util.js";
 import { campoOpciones, campoSelect, campoTexto, campoArea, campoFirma, aviso } from "../componentes/campos.js";
@@ -14,6 +17,7 @@ import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } fr
 import { camposControl, hoyIso } from "../componentes/campos-auto.js";
 import { leerCatalogoAts, leerAtsDelDia } from "../api/odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
+import { sectorDeSesion, esObraReal } from "../componentes/lugares.js";
 
 const PLANTILLA = { deposito: "F08_DEP", logistica: "F08_LOG" };
 const DETENCION = "No iniciar o suspender ante fugas, cargas inestables, equipos dañados, resguardos ausentes, falta de aislamiento de energía, tránsito sin control, derrames no controlados, incompatibilidades de almacenamiento o falta de controles críticos. Aislar, corregir y verificar antes de autorizar.";
@@ -69,8 +73,11 @@ export default {
     ctx.cat = await leerCatalogoAts();
   },
   inicial: () => {
-    const u = leerSesion().usuario;
-    return { fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no", sector: u?.rol_hys === "encargado" ? u.sector || null : undefined };
+    const s = leerSesion();
+    const u = s.usuario;
+    // Encargado: su sector. Inspector: el sector del lugar de ingreso si es deposito/logistica.
+    const sector = u?.rol_hys === "encargado" ? (u.sector || null) : (sectorDeSesion(s.obra) || undefined);
+    return { fecha: hoyIso(), respuestas: {}, tareas: [], fuera_rutina: "no", sector };
   },
   pasos: [
     {
@@ -80,7 +87,9 @@ export default {
         const ya = bloqueante(d);
         const rehace = (d.previos || []).find((a) => a.turno_id === d.turno?.id && a.resultado === "no_autorizado");
         const ponerResponsables = (t) => { d.encargado_id = t.encargado_id || d.encargado_id || null; d.autoriza_id = t.autoriza_id || d.autoriza_id || null; };
+        const enObra = esObraReal(leerSesion().obra);
         return [
+          enObra && aviso("Ingresaste en una obra (OF). El ATS de turno (F08) es de Depósito o Logística: elegí el sector del turno. La OF no se guarda en el ATS.", "info"),
           selectorEmpresa(d, ctx),
           campoOpciones(d, "sector", "Sector", ctx.cat.sectores.filter(([k]) => !soloSector() || k === soloSector()), {
             columnas: 2, requerido: true,

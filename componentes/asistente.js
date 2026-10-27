@@ -20,7 +20,7 @@
 
 import { h } from "./util.js";
 import { aviso } from "./campos.js";
-import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS } from "./campos-auto.js";
+import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS, textoGps } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { botonPdfAts } from "./pdf-ats.js";
 import { encolar, procesarCola, buscarEnvio, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "../api/cola.js";
@@ -52,10 +52,11 @@ export async function montarAsistente(cont, def) {
   const chipGps = h("div", { class: "chip-gps" });
   function pintarGps() {
     const g = auto.gps;
-    chipGps.className = `chip-gps ${g.estado}`;
-    chipGps.replaceChildren(`📍 ${TEXTO_GPS[g.estado] || g.estado}`,
-      g.estado === "ok" ? ` (±${g.precision} m)` : "",
-      !["ok", "pendiente"].includes(g.estado) ? h("button", { type: "button", class: "btn chico", onclick: pedirGps }, "Reintentar") : "");
+    const claseExtra = g.estado === "ok" && g.impreciso ? "impreciso" : g.estado;
+    chipGps.className = `chip-gps ${claseExtra}`;
+    const reintentar = (g.estado !== "pendiente" && (g.estado !== "ok" || g.impreciso))
+      ? h("button", { type: "button", class: "btn chico", onclick: pedirGps }, "Reintentar") : "";
+    chipGps.replaceChildren(`📍 ${textoGps(g)}`, reintentar);
   }
   if (auto.gps?.estado !== "ok") pedirGps(); else pintarGps();
 
@@ -139,7 +140,7 @@ export async function montarAsistente(cont, def) {
     const u = ctx.sesion.usuario || {};
     const filas = [...def.resumen(d, ctx),
       ["Carga", `${u.nombre || "—"} · ${u.rol || ""}`],
-      ["Ubicación", auto.gps.estado === "ok" ? `${auto.gps.lat.toFixed(5)}, ${auto.gps.lon.toFixed(5)} (±${auto.gps.precision} m)` : TEXTO_GPS[auto.gps.estado]],
+      ["Ubicación", auto.gps.estado === "ok" ? `${auto.gps.lat.toFixed(5)}, ${auto.gps.lon.toFixed(5)} · ${textoGps(auto.gps)}` : textoGps(auto.gps)],
       ["Fecha y hora", "Se toma al tocar «Enviar»"]];
     return [h("h2", {}, "Revisá antes de enviar"),
       h("dl", { class: "resumen" }, filas.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v === "" || v == null ? "—" : String(v))])),
@@ -162,7 +163,7 @@ export async function montarAsistente(cont, def) {
     e.target.disabled = true;
     const u = ctx.sesion.usuario;
     if (!u) { error = "No hay usuario elegido. Volvé al inicio y elegí quién carga."; pintar(); return; }
-    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado: "sin_posicion" };
+    if (auto.gps.estado === "pendiente") auto.gps = { lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado: "sin_posicion", impreciso: false };
     auto.fecha_hora_control = ahoraUtc(); // UTC real, sin depender de la zona del celular
     try {
       const envio = def.armar(d, auto, ctx);

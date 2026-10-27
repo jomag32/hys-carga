@@ -93,7 +93,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px soli
 .nav-pasos .btn { flex: 1; }
 .chip-gps { font-size: .85rem; padding: .35rem .6rem; border-radius: 8px; margin: .3rem 0 .6rem; background: var(--info-claro); display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .chip-gps.ok { background: var(--ok-claro); }
-.chip-gps.denegado, .chip-gps.no_disponible, .chip-gps.sin_posicion { background: var(--alerta-claro); }
+.chip-gps.denegado, .chip-gps.no_disponible, .chip-gps.sin_posicion, .chip-gps.impreciso { background: var(--alerta-claro); }
 
 /* Campos */
 .campo { margin: 0 0 1.1rem; }

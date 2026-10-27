@@ -10,6 +10,12 @@
 
 import { CONFIG } from "../api/config.js";
 import { leerSesion } from "./sesion.js";
+import { lugarCorto, esObraReal } from "./lugares.js";
+
+/** Precisión GPS (m) por encima de la cual la ubicación se considera imprecisa (IP / Wi-Fi grosero).
+ *  No cambia x_gps_estado en Odoo (sigue «ok» con lat/lon/precision): solo marca UI + flag local.
+ *  Umbral 100 m: GPS de celular suele ser < 50 m; ±50000 m del reporte es típico de geoloc por IP. */
+export const GPS_PRECISION_IMPRECISA_M = 100;
 
 export function nuevaClaveIdempotencia() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -58,14 +64,18 @@ export const hoyIso = () => ahoraIso().slice(0, 10);
  *   "no_disponible" Navegador sin geolocalización.
  */
 export function tomarGps({ timeout = 15000 } = {}) {
-  const vacio = (estado) => ({ lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado });
+  const vacio = (estado) => ({ lat: null, lon: null, precision: null, fecha: ahoraUtc(), estado, impreciso: false });
   if (!("geolocation" in navigator)) return Promise.resolve(vacio("no_disponible"));
   return new Promise((ok) => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => ok({
-        lat: pos.coords.latitude, lon: pos.coords.longitude,
-        precision: Math.round(pos.coords.accuracy), fecha: ahoraUtc(new Date(pos.timestamp)), estado: "ok"
-      }),
+      (pos) => {
+        const precision = Math.round(pos.coords.accuracy);
+        const impreciso = Number.isFinite(precision) && precision > GPS_PRECISION_IMPRECISA_M;
+        ok({
+          lat: pos.coords.latitude, lon: pos.coords.longitude,
+          precision, fecha: ahoraUtc(new Date(pos.timestamp)), estado: "ok", impreciso
+        });
+      },
       (err) => ok(vacio(err.code === 1 ? "denegado" : "sin_posicion")),
       { enableHighAccuracy: true, timeout, maximumAge: 60000 }
     );
@@ -75,13 +85,23 @@ export function tomarGps({ timeout = 15000 } = {}) {
 export const TEXTO_GPS = {
   pendiente: "Buscando ubicación…",
   ok: "Ubicación tomada",
+  ok_impreciso: "Ubicación imprecisa",
   denegado: "Sin permiso de ubicación: se envía igual, sin coordenadas",
   sin_posicion: "El GPS no dio posición: se envía igual, sin coordenadas",
   no_disponible: "Este navegador no tiene GPS: se envía igual, sin coordenadas"
 };
 
-/** Obra en formato corto para «Cargado por»: "OT 9101", "Proyecto 384" (sin número de OT) o "Planta". */
-export const obraCorta = (obra) => (!obra ? "—" : obra.id === "planta" ? "Planta" : obra.ot ? `OT ${obra.ot}` : `Proyecto ${obra.id}`);
+/** Texto del chip / resumen de GPS (incluye aviso de imprecisión sin nuevo valor Odoo). */
+export function textoGps(g) {
+  if (!g) return TEXTO_GPS.no_disponible;
+  if (g.estado === "ok" && g.impreciso) return `${TEXTO_GPS.ok_impreciso} (±${g.precision} m) · preferí el celular con GPS`;
+  if (g.estado === "ok") return `${TEXTO_GPS.ok} (±${g.precision} m)`;
+  return TEXTO_GPS[g.estado] || g.estado;
+}
+
+/** Obra/lugar en formato corto para «Cargado por». */
+export const obraCorta = (obra) => lugarCorto(obra);
+export { esObraReal };
 
 /**
  * Texto de x_cargado_por (char): "Legajo N · <nombre> · Inspector HyS · <obra>", con el inspector que

@@ -5,8 +5,9 @@ import { h } from "./componentes/util.js";
 import { pintarEncabezado } from "./componentes/encabezado.js";
 import { leerSesion, guardarSesion, cerrarSesion, usuarioVigente } from "./componentes/sesion.js";
 import { selectorObra } from "./componentes/selector-obra.js";
+import { opcionesLugarPara, lugarSector, lugarPlanta, lugarObra } from "./componentes/lugares.js";
 import { montarAsistente } from "./componentes/asistente.js";
-import { aviso } from "./componentes/campos.js";
+import { aviso, campoOpciones } from "./componentes/campos.js";
 import { leerUsuariosDeIngreso, ingresarInspector, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
@@ -47,10 +48,10 @@ async function rutear() {
     || (s.usuario.vence && Date.parse(s.usuario.vence) < Date.now()))) { cerrarSesion(); s = leerSesion(); }
   const form = formulariosDe(leerSesion().usuario).find((f) => f.ruta === ruta);
   try {
-    if (ruta === "ingresar" || ruta === "obra" || ruta === "sesion") return vistaIngreso();
+    if (ruta === "ingresar" || ruta === "obra" || ruta === "lugar" || ruta === "sesion") return vistaIngreso();
     if (ruta === "salir") { cerrarSesion(); location.replace("#/ingresar"); return; }
     if (ruta === "envios") return vistaEnvios();
-    // Sin ingreso (obra + usuario de la lista) no se carga nada.
+    // Sin ingreso (lugar + usuario) no se carga nada.
     if (!s.obra || !s.usuario) { location.replace("#/ingresar"); return; }
     if (ruta === "vencimientos" && !esHys(s.usuario)) { location.replace("#/"); return; }
     if (ruta === "vencimientos") return (await import("./vistas/vencimientos.js")).default(app);
@@ -82,16 +83,17 @@ function vistaInicio() {
     etiquetaVersion());
 }
 
-// Ingreso: 1) tu nombre (inspectores activos de HyS, Odoo x_hys_inspector), 2) tu contraseña, 3) la obra.
-// La obra va al final porque la lista de obras (y sus Fichas) solo se lee con sesión (18/10/2026).
-// Con sesión vigente, #/ingresar y #/obra van directo a elegir obra (cambiar de obra sin volver a ingresar).
+// Ingreso: 1) nombre → 2) contraseña → 3) SECTOR/lugar → 4) OF solo si el lugar es «Obra»
+// (27/10/2026: sector antes de la OF; Depósito/Logística/Planta no piden OF).
+// Con sesión vigente, #/ingresar va al paso de lugar (cambiar sin volver a ingresar).
 function vistaIngreso() {
   const s = leerSesion();
-  const d = { obra: s.obra || undefined };
+  const d = { obra: undefined, lugar_clave: undefined };
   const marca = h("div", { class: "ingreso-marca" }, h("b", {}, "HyS · Tecnología ARME"), h("span", {}, "Carga de Higiene y Seguridad en obra"));
   const pasos = (n) => h("div", { class: "pasos-ingreso" },
     h("span", { class: n === 1 ? "activo" : "" }, "1. Quién sos"), h("span", {}, "›"), h("span", { class: n === 2 ? "activo" : "" }, "2. Contraseña"),
-    h("span", {}, "›"), h("span", { class: n === 3 ? "activo" : "" }, "3. Obra"));
+    h("span", {}, "›"), h("span", { class: n === 3 ? "activo" : "" }, "3. Sector"),
+    h("span", {}, "›"), h("span", { class: n === 4 ? "activo" : "" }, "4. OF"));
   // 1) nombre
   const paso1 = async () => {
     app.replaceChildren(marca, pasos(1), h("h1", {}, "¿Quién sos?"), h("p", { class: "cargando" }, "Cargando…"));
@@ -107,7 +109,7 @@ function vistaIngreso() {
       }, h("b", {}, u.nombre), h("br"), h("small", {}, [u.legajo ? `Legajo ${u.legajo}` : null, u.tipo === "externo" ? `externo${u.empresa ? " · " + u.empresa : ""}` : null, u.rol].filter(Boolean).join(" · "))))) : aviso("No hay inspectores activos en Odoo (HyS > Inspectores). Pedile a HyS que te dé de alta.", "alerta"),
       bloqueInstalar(), etiquetaVersion());
   };
-  // 2) contraseña propia del inspector (la verifica el backend; sin señal, la huella guardada en este celular).
+  // 2) contraseña
   const paso2 = (u) => {
     const error = h("div", { id: "error-ingreso", role: "alert" });
     const campo = h("input", { type: "password", id: "clave-ingreso", class: "entrada", autocomplete: "current-password",
@@ -133,16 +135,54 @@ function vistaIngreso() {
       h("button", { type: "button", class: "btn secundario", id: "btn-otro-nombre", onclick: () => paso1() }, "← No soy yo"));
     campo.focus();
   };
-  // 3) obra (ya con sesión: el backend pide el token para leer obras y Fichas)
+  const entrarConLugar = (lugar) => {
+    guardarSesion({ obra: lugar });
+    location.hash = "#/";
+  };
+  // 3) sector / lugar (antes de la OF)
   const paso3 = () => {
     const u = leerSesion().usuario;
-    app.replaceChildren(marca, pasos(3), h("h1", {}, "¿En qué obra o lugar estás?"),
+    const ops = opcionesLugarPara(u);
+    // Encargado con un solo sector: no hay elección → ir directo sin OF.
+    if (u?.rol_hys === "encargado" && ops.length === 1 && ops[0].tipo === "sector") {
+      entrarConLugar(lugarSector(ops[0].sector));
+      return;
+    }
+    d.lugar_clave = undefined;
+    const cuerpo = h("div", { id: "paso-lugar" });
+    const pintar = () => {
+      cuerpo.replaceChildren(
+        campoOpciones(d, "lugar_clave", "Sector / lugar", ops.map((o) => [o.clave, o.name]), {
+          columnas: 1, requerido: true,
+          alCambiar: (clave) => {
+            const op = ops.find((x) => x.clave === clave);
+            if (!op) return;
+            if (op.tipo === "obra") { paso4(); return; }
+            if (op.tipo === "sector") { entrarConLugar(lugarSector(op.sector)); return; }
+            if (op.tipo === "planta") { entrarConLugar(lugarPlanta()); return; }
+          }
+        }),
+        h("p", { class: "ayuda" }, "Si estás en una obra, elegí «Obra» y después la OT. Si estás en Depósito o Logística, no hace falta OF.")
+      );
+    };
+    app.replaceChildren(marca, pasos(3), h("h1", {}, "¿Dónde estás?"),
       h("p", { class: "ayuda", id: "ingreso-quien" }, `Ingresaste como ${u?.nombre || ""}.`),
-      selectorObra(d, "obra", { etiqueta: "Obra o lugar", incluirPlanta: true, alCambiar: (o) => {
-        const { id, name, ot, partner_id, user_id, x_mock_km } = o;
-        guardarSesion({ obra: { id, name, ot, partner_id, user_id, x_mock_km } });
-        location.hash = "#/";
+      cuerpo,
+      h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
+      bloqueInstalar(), etiquetaVersion());
+    pintar();
+  };
+  // 4) OF / proyecto (solo si el lugar es Obra; hace falta token para listar obras)
+  const paso4 = () => {
+    const u = leerSesion().usuario;
+    d.obra = undefined;
+    app.replaceChildren(marca, pasos(4), h("h1", {}, "¿En qué obra (OF) estás?"),
+      h("p", { class: "ayuda", id: "ingreso-quien" }, `Ingresaste como ${u?.nombre || ""}. Elegiste sector Obra.`),
+      selectorObra(d, "obra", { etiqueta: "Obra (OT)", incluirPlanta: false, prefill: false, alCambiar: (o) => {
+        const lugar = lugarObra(o);
+        if (lugar) entrarConLugar(lugar);
       } }),
+      h("button", { type: "button", class: "btn secundario", id: "btn-otro-lugar", onclick: () => paso3() }, "← Cambiar sector"),
       h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
       bloqueInstalar(), etiquetaVersion());
   };

@@ -8,6 +8,7 @@
 import { h, nombreM2o } from "../componentes/util.js";
 import { campoTexto, campoArea, campoOpciones, campoCasillas, aviso } from "../componentes/campos.js";
 import { selectorObra } from "../componentes/selector-obra.js";
+import { esObraReal } from "../componentes/lugares.js";
 import { camposControl, obraCorta } from "../componentes/campos-auto.js";
 import { leerRiesgosF01, leerFichasF01, aFormatoOdoo } from "../api/odoo.js";
 import { leerSesion } from "../componentes/sesion.js";
@@ -15,7 +16,7 @@ import { leerSesion } from "../componentes/sesion.js";
 const fichaDe = (d, ctx) => (ctx.fichas || []).find((f) => f.ot === d.obra?.id);
 const PREDIOS = [["terreno_cliente", "Terreno del cliente"], ["planta_terceros", "Planta de terceros"], ["via_publica", "Vía pública"]];
 // Obra de la sesión (la elegida al ingresar). «Planta» no es una OT: ahí se sigue pidiendo la obra.
-const obraSesion = (ctx) => (ctx.sesion?.obra && ctx.sesion.obra.id !== "planta" ? ctx.sesion.obra : null);
+const obraSesion = (ctx) => (esObraReal(ctx.sesion?.obra) ? ctx.sesion.obra : null);
 // El paso «Obra» se saltea si la obra ya viene de la sesión, salvo que se toque «Cambiar» o que esa OT
 // ya tenga Ficha (ahí se muestra el selector con el aviso y no deja seguir).
 const pasoObraVisible = (d, ctx) => !d.obra || !!d.cambiar_obra || !!fichaDe(d, ctx);

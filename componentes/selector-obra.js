@@ -1,14 +1,14 @@
-// Selector de obra (OT = project.project) con buscador. Lo usan el ingreso, F01, F02 y F05.
-// Lista TODOS los proyectos «en obra» (api/odoo.js listarObrasActivas: en producción GET /api/v1/obras
-// del backend, que consulta Odoo con MIA). No se filtra por la obra elegida al ingresar: esa solo
-// viene marcada de entrada. Búsqueda mientras se escribe, sin distinguir mayúsculas ni acentos, por
-// nombre del proyecto, número de OT o número de proyecto (id de project.project).
+// Selector de obra (OT = project.project) con buscador. Lo usan el ingreso (solo si el lugar es
+// «Obra»), F01, F02 y F05. Lista TODOS los proyectos «en obra» (api/odoo.js listarObrasActivas).
+// El lugar del ingreso (sector/planta) no se usa como prefill: solo una OT real. Búsqueda sin
+// distinguir mayúsculas ni acentos, por nombre, N.º de OT o N.º de proyecto.
 
 import { h, nombreM2o } from "./util.js";
 import { listarObrasActivas, estadoObras } from "../api/odoo.js";
 import { mostrarFechaHora } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { LUGAR_PLANTA } from "../api/datos-mock.js";
+import { esObraReal } from "./lugares.js";
 
 export const leerObras = (para = "") => listarObrasActivas(para);
 
@@ -41,7 +41,9 @@ function filaObra(o) {
 export function selectorObra(d, clave = "obra", { etiqueta = "Obra (OT)", incluirPlanta = false, alCambiar, requerido = true, para = "", prefill = true } = {}) {
   const sesion = leerSesion();
   // prefill=false (F02, pedido de Jorge 18/10/2026 22:35): el selector arranca vacío, sin la obra del ingreso.
-  if (prefill && d[clave] === undefined && sesion.obra && (incluirPlanta || sesion.obra.id !== "planta")) d[clave] = sesion.obra;
+  // Solo prellenar con OT real: sector/planta del ingreso no son opciones del selector de OF.
+  if (prefill && d[clave] === undefined && esObraReal(sesion.obra)) d[clave] = sesion.obra;
+  else if (prefill && d[clave] === undefined && incluirPlanta && sesion.obra?.id === "planta") d[clave] = sesion.obra;
   let opciones = [];
   let texto = "";
   const lista = h("div", { class: "lista-botones lista-obras", role: "listbox", id: `lista-${clave}` });
