@@ -12,7 +12,7 @@
 //   Por eso todo se pide a la red como «archivo?v=VERSION» (otra clave para la CDN → sale del servidor,
 //   ya nuevo) y se guarda en la copia con la clave sin «?v=». Así la copia de una versión nunca mezcla
 //   archivos de otra (antes, con cache:"reload", la CDN podía colar módulos viejos en la copia nueva).
-const VERSION = "2026-10-27.2";
+const VERSION = "2026-10-28.1";
 const CACHE = `hys-carga-cascara-${VERSION}`;
 const RED_MS = 4000;
 
@@ -20,7 +20,7 @@ const CASCARA = [
   "./", "index.html", "app.js", "manifest.webmanifest", "css/estilos.css",
   "api/cola.js", "api/config.js", "api/datos-mock.js", "api/odoo.js",
   "componentes/asistente.js", "componentes/campos-auto.js", "componentes/campos.js", "componentes/checklist.js",
-  "componentes/encabezado.js", "componentes/pdf-ats.js", "componentes/pwa.js", "componentes/selector-inspector.js", "componentes/selector-obra.js",
+  "componentes/encabezado.js", "componentes/manual.js", "componentes/manual-contenido.js", "componentes/pdf-ats.js", "componentes/pwa.js", "componentes/selector-inspector.js", "componentes/selector-obra.js",
   "componentes/selector-turno.js", "componentes/sesion.js", "componentes/util.js", "componentes/version.js",
   "vistas/_inspeccion-planta.js", "vistas/f01-ficha-riesgo.js", "vistas/f02-inspeccion-obra.js", "vistas/f03-recorrida-fabrica.js",
   "vistas/f04-check-instalaciones.js", "vistas/f05-evento.js", "vistas/f06-vencimiento-legal.js", "vistas/f07-cierre-desvio.js",

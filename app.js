@@ -15,6 +15,7 @@ import { CONFIG } from "./api/config.js";
 import { registrarServiceWorker, bloqueInstalar } from "./componentes/pwa.js";
 import { etiquetaVersion } from "./componentes/version.js";
 import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
+import { vistaManual } from "./componentes/manual.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
 /** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
@@ -41,6 +42,8 @@ const encabezado = document.getElementById("encabezado");
 async function rutear() {
   pintarEncabezado(encabezado);
   const ruta = (location.hash.replace(/^#\/?/, "") || "inicio").split("?")[0];
+  // Manual de uso: se puede leer sin ingresar (#/manual o #/manual/f05).
+  if (ruta === "manual" || ruta.startsWith("manual/")) return vistaManual(app, ruta.split("/")[1]?.toUpperCase());
   let s = leerSesion();
   // Sesiones de la lista fija vieja (usuarios de ejemplo): se piden de nuevo con un inspector.
   // Con backend real hace falta el token de la contraseña (ingreso por inspector, 18/10/2026 19:34).
@@ -80,6 +83,7 @@ function vistaInicio() {
           formularioConectado(f.cod) ? "" : h("span", { class: "badge-prueba" }, ETIQUETA_PRUEBA))))),
     esHys(leerSesion().usuario) ? h("a", { class: "btn secundario ancho", href: "#/vencimientos", id: "ir-vencimientos" }, "📅 Vencimientos legales (ver estado)") : "",
     h("a", { class: "btn secundario ancho", href: "#/envios" }, "📤 Envíos del celular"),
+    h("a", { class: "btn secundario ancho", href: "#/manual", id: "ir-manual" }, "📖 Manual de uso de las fichas"),
     etiquetaVersion());
 }
 

@@ -23,6 +23,7 @@ import { aviso } from "./campos.js";
 import { nuevaClaveIdempotencia, tomarGps, ahoraIso, ahoraUtc, TEXTO_GPS, textoGps } from "./campos-auto.js";
 import { leerSesion } from "./sesion.js";
 import { botonPdfAts } from "./pdf-ats.js";
+import { botonManual } from "./manual.js";
 import { encolar, procesarCola, buscarEnvio, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "../api/cola.js";
 
 export async function montarAsistente(cont, def) {
@@ -84,7 +85,7 @@ export async function montarAsistente(cont, def) {
   const todos = () => (typeof def.pasos === "function" ? def.pasos(ctx) : def.pasos);
   const visibles = () => todos().filter((p) => !p.visible || p.visible(d, ctx));
 
-  const titulo = h("div", { class: "form-titulo" }, h("span", { class: "codigo" }, `HYS-${def.codigo}`), h("h1", {}, def.titulo));
+  const titulo = h("div", { class: "form-titulo" }, h("span", { class: "codigo" }, `HYS-${def.codigo}`), h("h1", {}, def.titulo), botonManual(def.codigo));
   const progreso = h("div", { class: "progreso" });
   const cuerpo = h("section", { class: "paso" });
   const nav = h("nav", { class: "nav-pasos" });
