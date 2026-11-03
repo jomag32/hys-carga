@@ -8,7 +8,7 @@ import { selectorObra } from "./componentes/selector-obra.js";
 import { opcionesLugarPara, lugarSector, lugarPlanta, lugarObra } from "./componentes/lugares.js";
 import { montarAsistente } from "./componentes/asistente.js";
 import { aviso, campoOpciones } from "./componentes/campos.js";
-import { leerUsuariosDeIngreso, ingresarInspector, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
+import { leerCatalogoAts, leerUsuariosDeIngreso, ingresarInspector, reiniciarMock, listarEnviadosSimulados, borrarEnviadosSimulados } from "./api/odoo.js";
 import { iniciarCola, listarCola, procesarCola, limpiarEnviados, alCambiar, contarPendientes, formularioConectado, envioEnPrueba, TEXTO_PRUEBA, ETIQUETA_PRUEBA } from "./api/cola.js";
 import { ahoraIso, mostrarFechaHora } from "./componentes/campos-auto.js";
 import { CONFIG } from "./api/config.js";
@@ -146,10 +146,10 @@ function vistaIngreso() {
   // 3) sector / lugar (antes de la OF)
   const paso3 = () => {
     const u = leerSesion().usuario;
-    const ops = opcionesLugarPara(u);
+    let ops = opcionesLugarPara(u);
     // Encargado con un solo sector: no hay elección → ir directo sin OF.
     if (u?.rol_hys === "encargado" && ops.length === 1 && ops[0].tipo === "sector") {
-      entrarConLugar(lugarSector(ops[0].sector));
+      entrarConLugar(lugarSector(ops[0].sector, ops[0].name));
       return;
     }
     d.lugar_clave = undefined;
@@ -162,7 +162,7 @@ function vistaIngreso() {
             const op = ops.find((x) => x.clave === clave);
             if (!op) return;
             if (op.tipo === "obra") { paso4(); return; }
-            if (op.tipo === "sector") { entrarConLugar(lugarSector(op.sector)); return; }
+            if (op.tipo === "sector") { entrarConLugar(lugarSector(op.sector, op.name)); return; }
             if (op.tipo === "planta") { entrarConLugar(lugarPlanta()); return; }
           }
         }),
@@ -175,6 +175,11 @@ function vistaIngreso() {
       h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
       bloqueInstalar(), etiquetaVersion());
     pintar();
+    // Sectores de Odoo (tabla x_hys_sector): si llegan, reemplazan las opciones fijas. Sin señal → quedan las fijas.
+    leerCatalogoAts().then((cat) => {
+      const nuevas = opcionesLugarPara(u, cat?.sectores);
+      if (nuevas.length && document.getElementById("paso-lugar") === cuerpo && d.lugar_clave === undefined) { ops = nuevas; pintar(); }
+    }).catch(() => {});
   };
   // 4) OF / proyecto (solo si el lugar es Obra; hace falta token para listar obras)
   const paso4 = () => {

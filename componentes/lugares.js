@@ -36,16 +36,16 @@ export const esSectorSesion = (obra) => !!obra && (obra.tipo === "sector" || Str
  *  En obra real (OF) el sector ATS se elige en F08 (típicamente «obra»). */
 export function sectorDeSesion(obra) {
   if (!obra) return null;
-  if (obra.sector && SECTORES_ATS[obra.sector]) return obra.sector;
-  const m = /^sector:(deposito|logistica|obra)$/.exec(String(obra.id || ""));
+  if (obra.sector && (SECTORES_ATS[obra.sector] || obra.tipo === "sector")) return obra.sector; // sectores de la tabla x_hys_sector
+  const m = /^sector:([a-z0-9_]+)$/.exec(String(obra.id || ""));
   return m ? m[1] : null;
 }
 
 export const esPlantaSesion = (obra) => !!obra && (obra.id === "planta" || obra.tipo === "planta");
 
 /** Arma el objeto session.obra para un sector F08 (sin OF). */
-export function lugarSector(codigo) {
-  const s = SECTORES_ATS[codigo];
+export function lugarSector(codigo, nombre = null) {
+  const s = SECTORES_ATS[codigo] || (nombre ? { codigo, nombre } : null);
   if (!s) throw new Error(`Sector desconocido: ${codigo}`);
   return { id: `sector:${s.codigo}`, name: s.nombre, tipo: "sector", sector: s.codigo };
 }
@@ -64,7 +64,7 @@ export function lugarObra(o) {
 export function lugarCorto(obra) {
   if (!obra) return "—";
   if (esPlantaSesion(obra)) return "Planta";
-  if (esSectorSesion(obra)) return SECTORES_ATS[sectorDeSesion(obra)]?.nombre || obra.name || "Sector";
+  if (esSectorSesion(obra)) return obra.name || SECTORES_ATS[sectorDeSesion(obra)]?.nombre || "Sector";
   if (obra.ot) return `OT ${obra.ot}`;
   if (Number.isInteger(obra.id)) return `Proyecto ${obra.id}`;
   return obra.name || "—";
@@ -74,10 +74,21 @@ export function lugarCorto(obra) {
  * Opciones de lugar visibles para este usuario.
  * Encargado de sector: solo su sector (no elige Obra ni otros).
  */
-export function opcionesLugarPara(usuario) {
+export function opcionesLugarPara(usuario, sectoresCat = null) {
+  const ops = opcionesDesdeCatalogo(sectoresCat) || OPCIONES_LUGAR;
   if (usuario?.rol_hys === "encargado") {
     const s = usuario.sector;
-    return OPCIONES_LUGAR.filter((o) => o.tipo === "sector" && o.sector === s);
+    return ops.filter((o) => o.tipo === "sector" && o.sector === s);
   }
-  return OPCIONES_LUGAR;
+  return ops;
+}
+
+/** Opciones de lugar con los sectores del catálogo ATS (tabla x_hys_sector de Odoo: incluye los creados
+ *  al vuelo, p. ej. «Corte láser»). sectoresCat = [[codigo, nombre], …] o [{codigo, nombre}, …].
+ *  Sin catálogo (sin señal / Odoo sin la tabla) → null y se usan las opciones fijas. «Obra» sigue aparte (pide OF). */
+export function opcionesDesdeCatalogo(sectoresCat) {
+  const pares = (Array.isArray(sectoresCat) ? sectoresCat : []).map((s) => (Array.isArray(s) ? s : [s?.codigo, s?.nombre])).filter(([k, n]) => k && n);
+  if (!pares.length) return null;
+  const planta = pares.filter(([k]) => k !== "obra").map(([k, n]) => ({ clave: k, tipo: "sector", sector: k, name: n, ayuda: "Sin OF: seguís al menú (ATS F08)." }));
+  return [OPCIONES_LUGAR[0], ...planta, OPCIONES_LUGAR.find((o) => o.tipo === "planta")];
 }
