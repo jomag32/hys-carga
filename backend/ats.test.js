@@ -23,7 +23,17 @@ const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_r
 const K = (n) => `6f1c2a9e-1111-4222-8333-${String(n).padStart(12, "0")}`;
 const FOTO = "data:image/jpeg;base64,AAAA";
 
-function armar({ previos = [], ahora = AHORA, flagObra = false, odooTieneObra = false } = {}) {
+// Tabla x_hys_sector (después de la migración): ids 7/8/9 + un sector creado al vuelo (sin código → sec_12).
+const SECTORES_TABLA = [
+  { id: 7, x_name: "Depósito Central", x_codigo: "deposito", x_plantilla: "F08_DEP", x_requiere_ot: false, x_secuencia: 10, x_ambito: "ats" },
+  { id: 8, x_name: "Logística y Mantenimiento", x_codigo: "logistica", x_plantilla: "F08_LOG", x_requiere_ot: false, x_secuencia: 20, x_ambito: "ats" },
+  { id: 9, x_name: "Obra", x_codigo: "obra", x_plantilla: "F08_OBRA", x_requiere_ot: true, x_secuencia: 30, x_ambito: "ats" },
+  { id: 12, x_name: "Corte láser", x_codigo: false, x_plantilla: "F08_DEP", x_requiere_ot: false, x_secuencia: 40, x_ambito: "ats" }];
+const SID = { deposito: 7, logistica: 8, obra: 9 };
+const TURNOS_TABLA = [...TURNOS.map((t) => ({ ...t, x_sector_id: [SID[t.x_sector], "S"] })),
+  { id: 4, x_name: "Jornada", x_codigo: "jornada", x_sector: false, x_sector_id: [12, "Corte láser"], x_hora_inicio: 6, x_dias: "0,1,2,3,4", x_encargado_id: [17, "Encargado Ejemplo"], x_autoriza_id: [18, "Gerencia Ejemplo"], x_codigo_ats: "ATS-LASER-001", x_secuencia: 40 }];
+
+function armar({ previos = [], ahora = AHORA, flagObra = false, odooTieneObra = false, tabla = false } = {}) {
   const db = { x_hys_ats: previos.map((a) => ({ ...a })), x_hys_ats_linea: [] };
   const llamadas = [];
   const val = (r, c) => (Array.isArray(r[c]) ? r[c][0] : r[c]);
@@ -41,6 +51,7 @@ function armar({ previos = [], ahora = AHORA, flagObra = false, odooTieneObra = 
         ? [["deposito", "Depósito"], ["logistica", "Logística"], ["obra", "Obra"]]
         : [["deposito", "Depósito"], ["logistica", "Logística"]];
       const out = { x_sector: { selection: sel, type: "selection" } };
+      if (tabla) out.x_sector_id = { type: "many2one" };
       if (odooTieneObra) out.x_ot_id = { type: "many2one" };
       return out;
     }
@@ -50,9 +61,9 @@ function armar({ previos = [], ahora = AHORA, flagObra = false, odooTieneObra = 
       v.x_linea_ids.forEach((l, i) => db.x_hys_ats_linea.push({ id: id * 100 + i, x_ats_id: [id, "ATS"], ...l[2] }));
       return [id];
     }
-    const base = { x_hys_turno: TURNOS, x_hys_item_plantilla: ITEMS, x_hys_config: [{ x_ats_min_justif: 10, x_ats_horas_tardia: 24 }], "hr.employee": EMPLEADOS.map((e) => ({ ...e, active: true })),
+    const base = { x_hys_turno: tabla ? TURNOS_TABLA : TURNOS, ...(tabla ? { x_hys_sector: SECTORES_TABLA } : {}), x_hys_item_plantilla: ITEMS, x_hys_config: [{ x_ats_min_justif: 10, x_ats_horas_tardia: 24 }], "hr.employee": EMPLEADOS.map((e) => ({ ...e, active: true })),
       "res.company": EMPRESAS, x_hys_inspector: INSPECTORES, x_hys_ats: db.x_hys_ats, x_hys_ats_linea: db.x_hys_ats_linea }[m] || [];
-    const dom = (args[0] || []).filter((d) => Array.isArray(d) && !["x_active", "active"].includes(d[0]) && d[0] !== "x_formulario");
+    const dom = (args[0] || []).filter((d) => Array.isArray(d) && !["x_active", "active", "x_ambito"].includes(d[0]) && d[0] !== "x_formulario");
     let r = base.filter((x) => dom.every((d) => cumple(x, d)));
     if (m === "x_hys_ats" && kw.order?.startsWith("x_fecha desc")) r = [...r].sort((a, b) => String(b.x_fecha).localeCompare(String(a.x_fecha)) || b.id - a.id);
     if (m === "x_hys_ats" && kw.order === "id desc") r = [...r].sort((a, b) => b.id - a.id);
@@ -304,4 +315,37 @@ test("validarAts: obra sin OF falla; planta ignora x_ot_id", () => {
   delete sin.odoo.vals.x_ot_id;
   const bad = validarAts(sin, { turno, items, personas: null, empresas: null, minJustif: 10, ahora: AHORA });
   assert.ok(bad.errores.some((e) => e.campo === "x_ot_id"));
+});
+
+test("tabla x_hys_sector: catálogo con sector creado al vuelo y POST guarda x_sector_id", async () => {
+  const { api, db } = armar({ tabla: true, flagObra: true });
+  const c = await api.catalogo();
+  assert.equal(c.sectores_desde_tabla, true);
+  assert.deepEqual(c.sectores.map((s) => s.codigo), ["deposito", "logistica", "obra", "sec_12"]);
+  assert.equal(c.sectores.find((s) => s.codigo === "sec_12").nombre, "Corte láser");
+  assert.ok(c.turnos.some((t) => t.sector === "sec_12" && t.codigo_ats === "ATS-LASER-001"));
+  assert.ok(c.turnos.some((t) => t.sector === "deposito" && t.id === 1));
+  // sector de la tabla con código de la selection vieja: escribe ambos campos
+  const r = await api.recibir(cuerpo({}, { clave: K(70) }), { sesion: SES });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_ats.at(-1).x_sector_id, 7);
+  assert.equal(db.x_hys_ats.at(-1).x_sector, "deposito");
+  // sector nuevo (sin valor en la selection): solo x_sector_id
+  const base = cuerpo({}, { clave: K(71) });
+  Object.assign(base.odoo.vals, { x_sector: "sec_12", x_turno_id: 4 });
+  const r2 = await api.recibir(base, { sesion: SES });
+  assert.equal(r2.estado, 201);
+  assert.equal(db.x_hys_ats.at(-1).x_sector_id, 12);
+  assert.equal(db.x_hys_ats.at(-1).x_sector, undefined);
+});
+
+test("sin tabla x_hys_sector: respaldo a la selection (sin x_sector_id)", async () => {
+  const { api, db } = armar({ flagObra: false });
+  const c = await api.catalogo();
+  assert.equal(c.sectores_desde_tabla, false);
+  assert.deepEqual(c.sectores.map((s) => s.codigo), ["deposito", "logistica"]);
+  const r = await api.recibir(cuerpo({}, { clave: K(72) }), { sesion: SES });
+  assert.equal(r.estado, 201);
+  assert.equal(db.x_hys_ats.at(-1).x_sector, "deposito");
+  assert.equal("x_sector_id" in db.x_hys_ats.at(-1), false);
 });

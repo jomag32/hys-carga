@@ -311,15 +311,21 @@ export async function leerCatalogoAts() {
       codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, critico: !!i.x_critico,
       admite_na: !M.ATS_SIN_NA.includes(i.x_codigo), secuencia: i.x_secuencia, version: i.x_version }));
     const pers = M.EMPLEADOS.map((e) => ({ id: e.id, nombre: e.name, puesto: e.job_title || "" }));
-    return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"], ["obra", "Obra"]], turnos: M.TURNOS,
+    // Ejemplo: como si Odoo ya tuviera la tabla x_hys_sector, con un sector creado al vuelo (sec_12 · Corte láser).
+    return clonar({ sectores: [["deposito", "Depósito Central"], ["logistica", "Logística y Mantenimiento"], ["obra", "Obra"], ["sec_12", "Corte láser"]],
+      sector_info: { deposito: { plantilla: "F08_DEP" }, logistica: { plantilla: "F08_LOG" }, obra: { plantilla: "F08_OBRA", requiere_ot: true }, sec_12: { plantilla: "F08_DEP" } },
+      sectores_desde_tabla: true,
+      turnos: [...M.TURNOS, { id: 12, codigo: "jornada", nombre: "Jornada", sector: "sec_12", inicio: "06:00", dias: [0, 1, 2, 3, 4], encargado_id: null, autoriza_id: null, codigo_ats: "ATS-LASER-001" }],
       ats_obra_habilitado: true,
       controles: { F08_DEP: ctl("F08_DEP"), F08_LOG: ctl("F08_LOG"), F08_OBRA: ctl("F08_OBRA") },
-      personas: { deposito: pers, logistica: pers, obra: pers }, min_justificacion_na: 10,
+      personas: { deposito: pers, logistica: pers, obra: pers, sec_12: pers }, min_justificacion_na: 10,
       empresas: [{ id: 1, nombre: "Empresa A (ejemplo)", corto: "Coop. El Sol" }, { id: 3, nombre: "Empresa B (ejemplo)", corto: "Cormet" }] });
   }
   const cat = await conCopia("ats-catalogo", () => leerDelBackend("/ats/catalogo"));
   // El backend manda sectores como {codigo, nombre, plantilla}; la vista usa pares [codigo, nombre].
-  return { ...cat, sectores: (cat.sectores || []).map((s) => (Array.isArray(s) ? s : [s.codigo, s.nombre])) };
+  // sector_info: plantilla y si pide OF, por código (sectores de la tabla x_hys_sector de Odoo, o los fijos de antes).
+  const sector_info = Object.fromEntries((cat.sectores || []).filter((s) => !Array.isArray(s)).map((s) => [s.codigo, { plantilla: s.plantilla, requiere_ot: !!s.requiere_ot }]));
+  return { ...cat, sector_info, sectores: (cat.sectores || []).map((s) => (Array.isArray(s) ? s : [s.codigo, s.nombre])) };
 }
 
 /** Catálogo F03/F04 (GET /api/v1/inspecciones/catalogo, con sesión): ítems de la plantilla, sectores,

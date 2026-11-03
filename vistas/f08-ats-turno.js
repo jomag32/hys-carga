@@ -44,7 +44,9 @@ function sectoresVisibles(cat, solo) {
 }
 
 // Ítems del catálogo con la forma que usa el checklist (id = código del control).
-const items = (d, ctx) => (d.sector ? (ctx.cat.controles[PLANTILLA[d.sector]] || []).map((c) => ({
+// Plantilla del sector: la que manda Odoo (tabla x_hys_sector) o la fija de antes.
+const plantillaDe = (ctx, s) => ctx.cat.sector_info?.[s]?.plantilla || PLANTILLA[s] || "F08_DEP";
+const items = (d, ctx) => (d.sector ? (ctx.cat.controles[plantillaDe(ctx, d.sector)] || []).map((c) => ({
   id: c.codigo, x_codigo: c.codigo, x_name: c.nombre, x_bloque: c.bloque, x_critico: c.critico, admite_na: c.admite_na, x_secuencia: c.secuencia })) : []);
 const mitad = (d, ctx, n) => { const it = items(d, ctx); const m = Math.ceil(it.length / 2); return n === 1 ? it.slice(0, m) : it.slice(m); };
 const criticoEnNo = (d, ctx) => items(d, ctx).some((it) => it.x_critico && d.respuestas?.[it.id]?.respuesta === "no");
