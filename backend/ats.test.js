@@ -19,7 +19,9 @@ const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado", 
 const EMPRESAS = [{ id: 1, name: "COOP. EL SOL EJEMPLO" }, { id: 3, name: "CORMET EJEMPLO" }, { id: 2, name: "OTRA EMPRESA" }]; // 18 no se puede leer (regla de RR. HH.)
 const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_rol: "inspector", x_active: true },
   { id: 3, x_name: "Encargado Logística Ejemplo", x_legajo: "0003", x_rol: "encargado", x_sector: "logistica", x_active: true },
-  { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true }];
+  { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true },
+  { id: 5, x_name: "Encargado Obra Ejemplo", x_legajo: "0005", x_rol: "encargado", x_sector: "obra", x_active: true },
+  { id: 6, x_name: "Encargado Corte Ejemplo", x_legajo: "0006", x_rol: "encargado", x_sector: "sec_12", x_active: true }];
 const K = (n) => `6f1c2a9e-1111-4222-8333-${String(n).padStart(12, "0")}`;
 const FOTO = "data:image/jpeg;base64,AAAA";
 
@@ -86,7 +88,11 @@ function cuerpo(cambios = {}, { sector = "deposito", clave = K(1), lineas } = {}
   };
   return { formulario: "F08", idempotency_key: clave, odoo: { model: "x_hys_ats", method: "create", vals } };
 }
-const SES = { inspector_id: 2, legajo: "1" };
+const SES = { inspector_id: 4, legajo: "4" }; // encargado depósito (ATS = solo encargados)
+const SES_LOG = { inspector_id: 3, legajo: "3" };
+const SES_OBRA = { inspector_id: 5, legajo: "5" };
+const SES_LASER = { inspector_id: 6, legajo: "6" };
+const SES_INSP = { inspector_id: 2, legajo: "1" };
 const lineasCon = (cod, extra, sector = "deposito") => cuerpo({}, { sector }).odoo.vals.x_linea_ids.map(([a, b, l]) => [a, b, l.x_item_codigo === cod ? { ...l, ...extra } : l]);
 const err = (p, estado, re) => assert.rejects(p, (e) => e.estado === estado && (!re || re.test(e.message)));
 
@@ -110,8 +116,8 @@ test("ATS válido → 201, antes del turno, sin campos peligrosos del celular", 
   assert.equal(a.x_fecha_hora_control, "2026-10-20 09:50:00");
   assert.equal(a.x_codigo_ats, "ATS-DEP-001");
   assert.equal(a.x_origen, "formulario");
-  assert.equal(a.x_inspector_hys_id, 2);
-  assert.match(a.x_cargado_por, /Inspector HyS/);
+  assert.equal(a.x_inspector_hys_id, 4);
+  assert.match(a.x_cargado_por, /Encargado/);
   assert.equal(a.x_name, "ATS-2026-00100"); // lo pone Odoo (simulado), no el celular
   assert.equal(a.x_verificado_hys, undefined);
   assert.equal(a.x_linea_ids.length, 10);
@@ -160,7 +166,7 @@ test("N/A: justificación mínima y no admitido en ★ (salvo los que lo admiten
   const { api } = armar();
   await err(api.recibir(cuerpo({ x_linea_ids: lineasCon("F08D-01", { x_respuesta: "na", x_justificacion_na: "corto" }) }), { sesion: SES }), 422, /Justificá/);
   await err(api.recibir(cuerpo({ x_linea_ids: lineasCon("F08D-05", { x_respuesta: "na", x_justificacion_na: "No hay cilindros hoy en el sector" }) }), { sesion: SES }), 422, /no admite N\/A/);
-  const r = await api.recibir(cuerpo({ x_linea_ids: lineasCon("F08L-08", { x_respuesta: "na", x_justificacion_na: "Sin tareas con energías peligrosas" }, "logistica") }, { sector: "logistica" }), { sesion: SES });
+  const r = await api.recibir(cuerpo({ x_linea_ids: lineasCon("F08L-08", { x_respuesta: "na", x_justificacion_na: "Sin tareas con energías peligrosas" }, "logistica") }, { sector: "logistica" }), { sesion: SES_LOG });
   assert.equal(r.estado, 201);
 });
 
@@ -191,13 +197,16 @@ test("turno de otro sector / día sin turno / fecha futura → 422", async () =>
   await err(api.recibir(cuerpo({ x_fecha: "2026-10-23" }), { sesion: SES }), 422, /más de un día/);
 });
 
-test("encargado de otro sector → 403; encargado de su sector → 201; sin sesión → 401", async () => {
+test("encargado de otro sector → 403; encargado de su sector → 201; inspector → 403; sin sesión → 401", async () => {
   const { api } = armar();
   await err(api.recibir(cuerpo(), { sesion: { inspector_id: 3, legajo: "3" } }), 403, /otro sector/);
   const r = await api.recibir(cuerpo({}, { clave: K(7) }), { sesion: { inspector_id: 4, legajo: "4" } });
   assert.equal(r.estado, 201);
   await err(api.recibir(cuerpo({}, { clave: K(8) }), { sesion: null }), 401);
-  assert.equal(puedeCargar({ x_rol: false }, "deposito"), true);
+  await err(api.recibir(cuerpo({}, { clave: K(9) }), { sesion: SES_INSP }), 403, /encargados de sector/);
+  assert.equal(puedeCargar({ x_rol: false }, "deposito"), false);
+  assert.equal(puedeCargar({ x_rol: "inspector" }, "deposito"), false);
+  assert.equal(puedeCargar({ x_rol: "encargado", x_sector: "deposito" }, "deposito"), true);
 });
 
 test("cargado después del inicio → antes_de_turno falso; más de 24 h después → carga tardía", async () => {
@@ -292,11 +301,11 @@ test("catálogo sin obra por defecto (Odoo de hoy); con flag/odoo sí", async ()
 
 test("POST obra sin flag → 503; con flag exige x_ot_id y lo guarda", async () => {
   const off = armar({ flagObra: false });
-  await err(off.api.recibir(cuerpo({ x_ot_id: 4146 }, { sector: "obra" }), { sesion: SES }), 503, /ATS de obra/);
+  await err(off.api.recibir(cuerpo({ x_ot_id: 4146 }, { sector: "obra" }), { sesion: SES_OBRA }), 503, /ATS de obra/);
 
   const { api, db } = armar({ flagObra: true });
-  await err(api.recibir(cuerpo({}, { sector: "obra" }), { sesion: SES }), 422, /OF/);
-  const r = await api.recibir(cuerpo({ x_ot_id: 4146, x_actividades: "Montaje de estructura en obra ejemplo" }, { sector: "obra", clave: K(90) }), { sesion: SES });
+  await err(api.recibir(cuerpo({}, { sector: "obra" }), { sesion: SES_OBRA }), 422, /OF/);
+  const r = await api.recibir(cuerpo({ x_ot_id: 4146, x_actividades: "Montaje de estructura en obra ejemplo" }, { sector: "obra", clave: K(90) }), { sesion: SES_OBRA });
   assert.equal(r.estado, 201);
   assert.equal(db.x_hys_ats[0].x_sector, "obra");
   assert.equal(db.x_hys_ats[0].x_ot_id, 4146);
@@ -333,7 +342,7 @@ test("tabla x_hys_sector: catálogo con sector creado al vuelo y POST guarda x_s
   // sector nuevo (sin valor en la selection): solo x_sector_id
   const base = cuerpo({}, { clave: K(71) });
   Object.assign(base.odoo.vals, { x_sector: "sec_12", x_turno_id: 4 });
-  const r2 = await api.recibir(base, { sesion: SES });
+  const r2 = await api.recibir(base, { sesion: SES_LASER });
   assert.equal(r2.estado, 201);
   assert.equal(db.x_hys_ats.at(-1).x_sector_id, 12);
   assert.equal(db.x_hys_ats.at(-1).x_sector, undefined);

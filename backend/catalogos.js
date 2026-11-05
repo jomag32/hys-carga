@@ -42,13 +42,29 @@ export function armarFicha(r, mapa, hitos) {
 export function crearCatalogos(cliente) {
   let inspectores = { lista: null, hasta: 0, fuente: null };
 
+  /** Código de sector del encargado: selection vieja x_sector, o código de x_hys_sector vía x_sector_id. */
+  async function codigoSectorInspector(r) {
+    if (r.x_rol !== "encargado") return null;
+    if (r.x_sector) return r.x_sector;
+    const sid = Array.isArray(r.x_sector_id) ? r.x_sector_id[0] : r.x_sector_id;
+    if (!sid) return null;
+    try {
+      const secs = await cliente().ejecutar("x_hys_sector", "search_read", [[["id", "=", sid]]],
+        { fields: ["id", "x_codigo"], limit: 1 });
+      return secs[0]?.x_codigo || (secs[0] ? `sec_${secs[0].id}` : null);
+    } catch (e) { return null; }
+  }
+
   async function leerInspectores() {
     if (inspectores.lista && Date.now() < inspectores.hasta) return inspectores;
     const regs = await cliente().ejecutar("x_hys_inspector", "search_read", [[["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], order: "x_name, id" });
-    const lista = regs.map((r) => ({ id: r.id, nombre: String(r.x_name || "").trim(), legajo: r.x_legajo ? String(r.x_legajo).trim() : null,
-      tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null,
-      rol: r.x_rol || "inspector", sector: r.x_rol === "encargado" ? r.x_sector || null : null }));
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_sector_id"], order: "x_name, id" });
+    const lista = [];
+    for (const r of regs) {
+      lista.push({ id: r.id, nombre: String(r.x_name || "").trim(), legajo: r.x_legajo ? String(r.x_legajo).trim() : null,
+        tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null,
+        rol: r.x_rol || "inspector", sector: await codigoSectorInspector(r) });
+    }
     lista.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
     inspectores = { lista, hasta: Date.now() + CACHE_MS, fuente: "x_hys_inspector" };
     return inspectores;
@@ -58,8 +74,12 @@ export function crearCatalogos(cliente) {
    *  Incluye x_hys_password SOLO acá (servidor): la lista pública de /inspectores no lo pide ni lo expone. */
   async function buscarInspector(id) {
     const r = await cliente().ejecutar("x_hys_inspector", "search_read", [[["id", "=", id], ["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_hys_password"], limit: 1 });
-    return r[0] || null;
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_sector_id", "x_hys_password"], limit: 1 });
+    const row = r[0] || null;
+    if (!row) return null;
+    // Para login/sesión: el sector del encargado (selection o tabla).
+    if (row.x_rol === "encargado" && !row.x_sector) row.x_sector = await codigoSectorInspector(row);
+    return row;
   }
 
   // ---------------------------------------------------------------- F01 · fichas de riesgo (x_hys_ficha)

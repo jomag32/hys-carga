@@ -18,12 +18,16 @@ import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
 import { vistaManual } from "./componentes/manual.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
-/** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
-// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 (cargar y ver #/vencimientos) y F07 (cierre de desvíos): solo HyS.
+/** ATS (F08): solo encargados de sector/obra (Jorge 05/11/2026). Inspectores HyS cargan el resto.
+ *  Encargados: F08 + F05. F06/F07: solo HyS. El backend vuelve a controlar el ATS. */
 export const ROLES_HYS = ["inspector", "responsable", "desarrollo"];
 export const esHys = (u) => !!u && ROLES_HYS.includes(u.rol_hys || "inspector");
-export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05")
-  : esHys(u) ? FORMULARIOS : FORMULARIOS.filter((f) => f.cod !== "F06" && f.cod !== "F07"));
+export const formulariosDe = (u) => {
+  if (u?.rol_hys === "encargado") return FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05");
+  // Inspectores / HyS: todas menos F08 (ATS = encargados). F06/F07 solo roles HyS.
+  const sinAts = FORMULARIOS.filter((f) => f.cod !== "F08");
+  return esHys(u) ? sinAts : sinAts.filter((f) => f.cod !== "F06" && f.cod !== "F07");
+};
 export const FORMULARIOS = [
   { cod: "F01", ruta: "f01", archivo: "f01-ficha-riesgo.js", titulo: "Ficha de Riesgos de Obra", donde: "Inicio de obra", icono: "📋" },
   { cod: "F02", ruta: "f02", archivo: "f02-inspeccion-obra.js", titulo: "Inspección de obra", donde: "Obra", icono: "🦺" },
