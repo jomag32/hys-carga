@@ -26,26 +26,33 @@ export const OPCIONES_LUGAR = [
   { clave: "planta", tipo: "planta", name: "Planta · Fábrica y Oficina", ayuda: "Sin OF: recorridas F03/F04 y oficina." }
 ];
 
+/** Normaliza códigos de x_hys_sector (espacios → guión bajo) para comparar / armar session.obra. */
+export function normalizarCodigoSector(c) {
+  if (c === false || c == null || c === "") return null;
+  return String(c).trim().toLowerCase().replace(/\s+/g, "_");
+}
+
 /** ¿Es una OT/proyecto real (id numérico de project.project)? */
 export const esObraReal = (obra) => !!obra && Number.isInteger(obra.id);
 
 /** ¿El lugar de la sesión es un sector de planta (sin OF)? */
 export const esSectorSesion = (obra) => !!obra && (obra.tipo === "sector" || String(obra.id || "").startsWith("sector:"));
 
-/** Código de sector ATS (deposito|logistica|obra) si la sesión está en uno de planta; si no, null.
+/** Código de sector ATS (deposito|logistica|obra|…) si la sesión está en uno de planta; si no, null.
  *  En obra real (OF) el sector ATS se elige en F08 (típicamente «obra»). */
 export function sectorDeSesion(obra) {
   if (!obra) return null;
-  if (obra.sector && (SECTORES_ATS[obra.sector] || obra.tipo === "sector")) return obra.sector; // sectores de la tabla x_hys_sector
-  const m = /^sector:([a-z0-9_]+)$/.exec(String(obra.id || ""));
-  return m ? m[1] : null;
+  if (obra.sector && (SECTORES_ATS[obra.sector] || obra.tipo === "sector")) return normalizarCodigoSector(obra.sector) || obra.sector;
+  const m = /^sector:(.+)$/.exec(String(obra.id || ""));
+  return m ? (normalizarCodigoSector(m[1]) || m[1]) : null;
 }
 
 export const esPlantaSesion = (obra) => !!obra && (obra.id === "planta" || obra.tipo === "planta");
 
 /** Arma el objeto session.obra para un sector F08 (sin OF). */
 export function lugarSector(codigo, nombre = null) {
-  const s = SECTORES_ATS[codigo] || (nombre ? { codigo, nombre } : null);
+  const cod = normalizarCodigoSector(codigo) || codigo;
+  const s = SECTORES_ATS[cod] || (nombre ? { codigo: cod, nombre } : null);
   if (!s) throw new Error(`Sector desconocido: ${codigo}`);
   return { id: `sector:${s.codigo}`, name: s.nombre, tipo: "sector", sector: s.codigo };
 }
@@ -72,13 +79,19 @@ export function lugarCorto(obra) {
 
 /**
  * Opciones de lugar visibles para este usuario.
- * Encargado de sector: solo su sector (no elige Obra ni otros).
+ * Encargado de sector: solo su sector (no elige Obra ni otros). Si el sector viene de
+ * x_hys_sector y aún no está en el catálogo / opciones fijas, se sintetiza esa única opción
+ * (Jorge 05/11/2026: nunca paso 3 en blanco con sector asignado).
  */
 export function opcionesLugarPara(usuario, sectoresCat = null) {
   const ops = opcionesDesdeCatalogo(sectoresCat) || OPCIONES_LUGAR;
   if (usuario?.rol_hys === "encargado") {
-    const s = usuario.sector;
-    return ops.filter((o) => o.tipo === "sector" && o.sector === s);
+    const s = normalizarCodigoSector(usuario.sector) || usuario.sector || null;
+    if (!s) return [];
+    const hit = ops.filter((o) => o.tipo === "sector" && (normalizarCodigoSector(o.sector) || o.sector) === s);
+    if (hit.length) return hit;
+    const name = usuario.sector_nombre || SECTORES_ATS[s]?.nombre || s;
+    return [{ clave: s, tipo: "sector", sector: s, name, ayuda: "Sin OF: seguís al menú (ATS F08)." }];
   }
   return ops;
 }
@@ -87,7 +100,10 @@ export function opcionesLugarPara(usuario, sectoresCat = null) {
  *  al vuelo, p. ej. «Corte láser»). sectoresCat = [[codigo, nombre], …] o [{codigo, nombre}, …].
  *  Sin catálogo (sin señal / Odoo sin la tabla) → null y se usan las opciones fijas. «Obra» sigue aparte (pide OF). */
 export function opcionesDesdeCatalogo(sectoresCat) {
-  const pares = (Array.isArray(sectoresCat) ? sectoresCat : []).map((s) => (Array.isArray(s) ? s : [s?.codigo, s?.nombre])).filter(([k, n]) => k && n);
+  const pares = (Array.isArray(sectoresCat) ? sectoresCat : []).map((s) => {
+    const raw = Array.isArray(s) ? s : [s?.codigo, s?.nombre];
+    return [normalizarCodigoSector(raw[0]) || raw[0], raw[1]];
+  }).filter(([k, n]) => k && n);
   if (!pares.length) return null;
   const planta = pares.filter(([k]) => k !== "obra").map(([k, n]) => ({ clave: k, tipo: "sector", sector: k, name: n, ayuda: "Sin OF: seguís al menú (ATS F08)." }));
   return [OPCIONES_LUGAR[0], ...planta, OPCIONES_LUGAR.find((o) => o.tipo === "planta")];

@@ -50,7 +50,7 @@ export const ROL_ENCARGADO = "Encargado de sector";
 export async function leerUsuariosDeIngreso() {
   const lista = await leerTodosLosInspectores();
   return lista.map((e) => ({ id: e.id, nombre: e.nombre, legajo: e.legajo ?? null, tipo: e.tipo || "interno", empresa: e.empresa || null,
-    rol: e.rol === "encargado" ? ROL_ENCARGADO : ROL_INGRESO, rol_hys: e.rol || "inspector", sector: e.sector || null, fuente: "x_hys_inspector" }));
+    rol: e.rol === "encargado" ? ROL_ENCARGADO : ROL_INGRESO, rol_hys: e.rol || "inspector", sector: e.sector || null, sector_nombre: e.sector_nombre || null, fuente: "x_hys_inspector" }));
 }
 
 // ---------------------------------------------------------------- Contraseña por inspector (Jorge 18/10/2026 19:34)

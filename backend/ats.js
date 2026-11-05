@@ -17,6 +17,12 @@ export const SECTOR_OBRA = { obra: { nombre: "Obra", plantilla: "F08_OBRA", requ
 /** Todos los sectores que el código conoce (planta + obra). Respaldo si Odoo todavía no tiene la tabla x_hys_sector. */
 export const SECTORES = { ...SECTORES_PLANTA, ...SECTOR_OBRA };
 
+/** Normaliza códigos de x_hys_sector (espacios → guión bajo). Exportado para tests / catalogos. */
+export function normalizarCodigoSector(c) {
+  if (c === false || c == null || c === "") return null;
+  return String(c).trim().toLowerCase().replace(/\s+/g, "_");
+}
+
 /** Tabla de sectores de Odoo (x_hys_sector, ámbito ATS) → {codigo: {id, nombre, plantilla, requiere_ot}}.
  *  Sin la tabla (Odoo sin migrar) o vacía → null (el que llama usa SECTORES, la selection vieja). */
 export async function leerSectoresOdoo(ej) {
@@ -24,8 +30,10 @@ export async function leerSectoresOdoo(ej) {
     const r = await ej("x_hys_sector", "search_read", [[["x_active", "=", true], ["x_ambito", "in", ["ats", "ambos", false]]]],
       { fields: ["id", "x_name", "x_codigo", "x_plantilla", "x_requiere_ot", "x_secuencia"], order: "x_secuencia, id" });
     if (!Array.isArray(r) || !r.length) return null;
-    return Object.fromEntries(r.map((x) => [x.x_codigo || `sec_${x.id}`,
-      { id: x.id, nombre: x.x_name, plantilla: x.x_plantilla || SECTORES[x.x_codigo]?.plantilla || "F08_DEP", requiere_ot: !!x.x_requiere_ot }]));
+    return Object.fromEntries(r.map((x) => {
+      const codigo = normalizarCodigoSector(x.x_codigo) || `sec_${x.id}`;
+      return [codigo, { id: x.id, nombre: x.x_name, plantilla: x.x_plantilla || SECTORES[codigo]?.plantilla || SECTORES[x.x_codigo]?.plantilla || "F08_DEP", requiere_ot: !!x.x_requiere_ot }];
+    }));
   } catch (e) {
     console.log("ats: sin tabla x_hys_sector, uso la selection x_sector", e instanceof ErrorOdoo ? e.message : e?.name);
     return null;

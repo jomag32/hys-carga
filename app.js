@@ -152,6 +152,15 @@ function vistaIngreso() {
       entrarConLugar(lugarSector(ops[0].sector, ops[0].name));
       return;
     }
+    // Encargado sin sector en Odoo: mensaje claro (nunca paso 3 en blanco).
+    if (u?.rol_hys === "encargado" && ops.length === 0) {
+      app.replaceChildren(marca, pasos(3), h("h1", {}, "¿Dónde estás?"),
+        h("p", { class: "ayuda", id: "ingreso-quien" }, `Ingresaste como ${u?.nombre || ""}.`),
+        h("p", { class: "aviso error", id: "aviso-sin-sector" }, "No tenés sector asignado, pedí a HyS que lo cargue en Odoo"),
+        h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
+        bloqueInstalar(), etiquetaVersion());
+      return;
+    }
     d.lugar_clave = undefined;
     const cuerpo = h("div", { id: "paso-lugar" });
     const pintar = () => {
@@ -176,8 +185,14 @@ function vistaIngreso() {
       bloqueInstalar(), etiquetaVersion());
     pintar();
     // Sectores de Odoo (tabla x_hys_sector): si llegan, reemplazan las opciones fijas. Sin señal → quedan las fijas.
+    // Si el encargado tenía una opción sintetizada y el catálogo trae la misma, se actualiza el nombre.
     leerCatalogoAts().then((cat) => {
       const nuevas = opcionesLugarPara(u, cat?.sectores);
+      if (u?.rol_hys === "encargado" && nuevas.length === 1 && nuevas[0].tipo === "sector"
+        && document.getElementById("paso-lugar") === cuerpo && d.lugar_clave === undefined) {
+        entrarConLugar(lugarSector(nuevas[0].sector, nuevas[0].name));
+        return;
+      }
       if (nuevas.length && document.getElementById("paso-lugar") === cuerpo && d.lugar_clave === undefined) { ops = nuevas; pintar(); }
     }).catch(() => {});
   };
