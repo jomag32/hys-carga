@@ -68,7 +68,7 @@ Prueba local de punta a punta (envío real a Odoo): backend local en el puerto 8
 
 - `POST /api/v1/ingreso` `{inspector_id, clave}` → `{token, vence, inspector}` · 401 contraseña incorrecta/vacía · 403 inactivo o «Este inspector no tiene contraseña configurada, consultá a HyS» · 429 tras 8 fallos (15 min).
 - `POST /api/v1/inspecciones` exige `Authorization: Bearer <token>`; «cargado por» sale del token.
-- Variables (Render → hys-carga-api → Environment): `HYS_PWD_<legajo>` = contraseña, una por inspector (`HYS_PWD_0001`, `HYS_PWD_0002`, …). Alternativa `HYS_LOGIN_PASSWORDS` (JSON). Opcional `HYS_SESSION_SECRET`.
+- Resolución de contraseña: `x_hys_password` en Odoo (si no está vacío) y, si no, variables de entorno (Render → hys-carga-api → Environment): `HYS_PWD_<legajo>` (`HYS_PWD_0001`, …). Alternativa `HYS_LOGIN_PASSWORDS` (JSON). Opcional `HYS_SESSION_SECRET`. El campo de Odoo lo edita HyS responsable; MIA solo lo lee. Nunca se registran contraseñas en logs.
 
 ## F01 · POST /api/v1/fichas (18/10/2026)
 

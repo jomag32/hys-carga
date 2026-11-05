@@ -54,10 +54,11 @@ export function crearCatalogos(cliente) {
     return inspectores;
   }
 
-  /** Inspector activo por id (para el envío); null si no existe o está archivado. Sin caché. */
+  /** Inspector activo por id (para el envío y el login); null si no existe o está archivado. Sin caché.
+   *  Incluye x_hys_password SOLO acá (servidor): la lista pública de /inspectores no lo pide ni lo expone. */
   async function buscarInspector(id) {
     const r = await cliente().ejecutar("x_hys_inspector", "search_read", [[["id", "=", id], ["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], limit: 1 });
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_hys_password"], limit: 1 });
     return r[0] || null;
   }
 

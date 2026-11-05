@@ -1,0 +1,16 @@
+{
+  "fecha": "2026-11-05T08:58:42-0300",
+  "host": "https://coop-prueba.odoo.com",
+  "db": "coop-prueba",
+  "model": "x_hys_inspector",
+  "model_id": 2012,
+  "field": null,
+  "view": {
+    "id": 8476,
+    "name": "x_hys_inspector.form.hys",
+    "arch_db": "<form string=\"Inspector HyS\">\n  <sheet>\n    <widget name=\"web_ribbon\" title=\"Archivado\" bg_color=\"text-bg-danger\" invisible=\"x_active\"/>\n    <div class=\"oe_title\"><label for=\"x_name\"/><h1><field name=\"x_name\" placeholder=\"Apellido y nombre\"/></h1></div>\n    <group>\n      <group><field name=\"x_legajo\"/><field name=\"x_tipo\" widget=\"radio\" options=\"{'horizontal': true}\"/></group>\n      <group><field name=\"x_empresa\" invisible=\"x_tipo != 'externo'\" required=\"x_tipo == 'externo'\"/><field name=\"x_active\" widget=\"boolean_toggle\"/></group>\n    </group>\n    <field name=\"x_notas\" placeholder=\"Notas (matrícula, alcance, contacto…)\"/>\n  </sheet>\n  <chatter/>\n</form>",
+    "write_date": "2026-10-18 13:24:56"
+  },
+  "groups_xmlid": "studio_customization.grupo_hys_responsable",
+  "nota": "Restricción de visibilidad en la vista (groups=), no en ir.model.fields.groups, para que MIA (HYS servicio api, grupo 217) lea x_hys_password por API."
+}

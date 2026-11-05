@@ -1,12 +1,13 @@
-// Ingreso por inspector (decisión de Jorge 18/10/2026 19:34): cada inspector activo de x_hys_inspector
-// tiene SU contraseña, por legajo, en variables de entorno de Render (nunca en el repo ni en Odoo):
-//   HYS_PWD_<legajo>     una variable por inspector, p. ej. HYS_PWD_0001  (recomendado: fácil de editar)
-//   HYS_LOGIN_PASSWORDS  alternativa, JSON {"0001": "…", "0002": "…"}   (si hay ambas, gana HYS_PWD_<legajo>)
+// Ingreso por inspector (decisión de Jorge 18/10/2026 19:34; contraseña en Odoo 05/11/2026):
+// cada inspector activo de x_hys_inspector tiene SU contraseña. Orden de resolución:
+//   1) x_hys_password en Odoo (si no está vacío) — lo edita HyS en Inspectores
+//   2) HYS_PWD_<legajo> / HYS_LOGIN_PASSWORDS en el entorno (Render), como respaldo
 // Legajo "0001" y "1" son el mismo. Contraseñas comparadas en Unicode NFC y sin espacios en las puntas
 // (la «ñ» de Android y la de iPhone pueden venir compuestas o descompuestas).
 // POST /api/v1/ingreso {inspector_id, clave} → {token, vence, inspector}. El token firma (HMAC) el id y
 // legajo del inspector con una clave derivada de SU contraseña: si se cambia la contraseña, sus
 // sesiones dejan de valer. Sin estado en el servidor (el plan free se reinicia seguido).
+// Nunca se registran contraseñas en logs.
 import crypto from "node:crypto";
 
 export const SIN_CLAVE = "Este inspector no tiene contraseña configurada, consultá a HyS";
@@ -33,6 +34,19 @@ export function leerClaves(env = process.env) {
     if (x && normalizarClave(v)) m.set(normalizarLegajo(x[1]), normalizarClave(v));
   }
   return m;
+}
+
+/**
+ * Contraseña efectiva del inspector: Odoo (x_hys_password) si no está vacío; si no, entorno.
+ * `insp.x_hys_password` puede ser false/null/"" cuando el campo está vacío en Odoo.
+ */
+export function claveDeInspector(insp, envMap = leerClaves()) {
+  // Odoo JSON-RPC / XML-RPC devuelve false (boolean) cuando el Char está vacío — no es la palabra "false".
+  const crudo = insp?.x_hys_password;
+  const deOdoo = (crudo === false || crudo == null) ? "" : normalizarClave(crudo);
+  if (deOdoo) return deOdoo;
+  const legajo = normalizarLegajo(insp?.x_legajo || "");
+  return legajo ? (envMap.get(legajo) || null) : null;
 }
 
 const b64 = (b) => Buffer.from(b).toString("base64url");
@@ -62,7 +76,7 @@ export function crearIngreso({ catalogos, claves = () => leerClaves(), secreto, 
     const insp = await catalogos.buscarInspector(inspector_id);
     if (!insp) throw new ErrorIngreso(403, "Este inspector no está activo en Odoo (HyS > Inspectores). Consultá a HyS.", "inactivo");
     const legajo = normalizarLegajo(insp.x_legajo || "");
-    const esperada = legajo ? claves().get(legajo) : null;
+    const esperada = claveDeInspector(insp, claves());
     if (!esperada) throw new ErrorIngreso(403, SIN_CLAVE, "sin_clave");
     const dada = normalizarClave(clave);
     if (!dada || !igual(resumen(dada), resumen(esperada))) {
@@ -76,13 +90,22 @@ export function crearIngreso({ catalogos, claves = () => leerClaves(), secreto, 
       inspector: { id: insp.id, nombre: insp.x_name, legajo: insp.x_legajo || null } };
   }
 
-  /** Token válido (firma, vigencia, contraseña actual del legajo) → {inspector_id, legajo}; si no, null. */
-  function verificar(token) {
+  /**
+   * Token válido (firma, vigencia, contraseña actual del inspector) → {inspector_id, legajo}; si no, null.
+   * Async: relee el inspector en Odoo para honorar x_hys_password (con fallback a env si Odoo cae o el campo está vacío).
+   */
+  async function verificar(token) {
     const [datos, firma] = String(token || "").split(".");
     if (!datos || !firma) return null;
     let p; try { p = JSON.parse(Buffer.from(datos, "base64url").toString("utf8")); } catch (e) { return null; }
     if (!Number.isInteger(p?.i) || typeof p.l !== "string" || !(p.e > ahora())) return null;
-    const clave = claves().get(p.l);
+    let insp = null;
+    try { insp = await catalogos.buscarInspector(p.i); } catch (e) { insp = null; }
+    // Inspector activo con legajo distinto al del token → inválido.
+    if (insp && normalizarLegajo(insp.x_legajo || "") !== p.l) return null;
+    // Sin registro (archivado u Odoo caído): solo validamos contra el entorno (compat).
+    // Con registro: Odoo gana si x_hys_password no está vacío; si no, entorno.
+    const clave = insp ? claveDeInspector(insp, claves()) : (claves().get(p.l) || null);
     if (!clave || !igual(firma, firmar(datos, llave(p.l, clave)))) return null;
     return { inspector_id: p.i, legajo: p.l };
   }
