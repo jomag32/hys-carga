@@ -1,0 +1,74 @@
+{
+  "cuando": "20261105-105732",
+  "zona": "America/Cordoba (box-local)",
+  "motivo": "rename x_hys_sector id=4 x_codigo corte laser -> corte_laser",
+  "sector_antes": {
+    "id": 4,
+    "x_name": "Corte Laser",
+    "x_codigo": "corte laser",
+    "x_active": true,
+    "x_plantilla": "F08_DEP",
+    "x_requiere_ot": false,
+    "x_ambito": "ats",
+    "x_secuencia": 0
+  },
+  "estructura": {
+    "id": 6,
+    "x_name": "Estructura",
+    "x_codigo": "sec_6",
+    "x_active": true,
+    "x_plantilla": "F08_DEP",
+    "x_requiere_ot": false,
+    "x_ambito": "fabrica"
+  },
+  "turnos_sid4": [
+    {
+      "id": 5,
+      "x_name": false,
+      "x_codigo": "jornada",
+      "x_sector": false,
+      "x_sector_id": [
+        4,
+        "Corte Laser"
+      ],
+      "x_active": true,
+      "x_codigo_ats": "ATS-LASER-001"
+    }
+  ],
+  "ats_sid4": [
+    {
+      "id": 27,
+      "x_name": "ATS-2026-00018",
+      "x_sector": false,
+      "x_sector_id": [
+        4,
+        "Corte Laser"
+      ],
+      "x_fecha": "2026-11-05"
+    }
+  ],
+  "inspectores_sid4": [
+    {
+      "id": 8,
+      "x_name": "RODRIGUEZ MATIAS",
+      "x_rol": "encargado",
+      "x_sector": false,
+      "x_sector_id": [
+        4,
+        "Corte Laser"
+      ]
+    }
+  ],
+  "notas": [
+    "x_sector selection on ats/turno/inspector does NOT include corte laser — only M2O x_sector_id refs id=4",
+    "Estructura id=6 keeps x_codigo=sec_6 (no spaces); ambito=fabrica (out of ATS catalog filter)",
+    "No ir.actions.server with corte laser in code"
+  ],
+  "rollback": {
+    "model": "x_hys_sector",
+    "id": 4,
+    "write": {
+      "x_codigo": "corte laser"
+    }
+  }
+}
