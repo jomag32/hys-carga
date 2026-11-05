@@ -162,7 +162,7 @@ const servidor = http.createServer(async (req, res) => {
     // Catálogos con datos de obras (nombres de proyectos y clientes): solo con sesión de inspector.
     // /api/v1/inspectores queda abierto porque es la lista para ingresar.
     const SESION_GET = ["/api/v1/obras", "/api/v1/fichas", "/api/v1/hitos", "/api/v1/riesgos", "/api/v1/ats", "/api/v1/ats/catalogo", "/api/v1/inspecciones/catalogo"];
-    if (req.method === "GET" && SESION_GET.includes(ruta) && !sesionDe(req)) return sinSesion(res);
+    if (req.method === "GET" && SESION_GET.includes(ruta) && !await sesionDe(req)) return sinSesion(res);
 
     if (ruta === "/api/v1/obras" && req.method === "GET") {
       const tipo = new URL(req.url, "http://x").searchParams.get("para") === "f01" ? "f01" : "curso";
@@ -182,7 +182,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (ruta === "/api/v1/fichas" && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await altaFichas.recibir(cuerpo, { sesion });
@@ -213,7 +213,7 @@ const servidor = http.createServer(async (req, res) => {
     const mPdf = ruta.match(/^\/api\/v1\/ats\/(\d+)\/pdf$/);
     if (mPdf && req.method === "GET") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) return sinSesion(res);
         const { pdf, nombre } = await ats.pdf(Number(mPdf[1]), { sesion });
         log(`ats-pdf: id ${mPdf[1]} (${pdf.length} bytes)`);
@@ -223,7 +223,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (ruta === "/api/v1/ats" && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await ats.recibir(cuerpo, { sesion });
@@ -238,12 +238,12 @@ const servidor = http.createServer(async (req, res) => {
     }
     // F05 · evento (crean todos los que ingresan; en Odoo lo leen solo HyS/JP/Desarrollo/Lectura F05)
     if (ruta === "/api/v1/eventos/catalogo" && req.method === "GET") {
-      if (!sesionDe(req)) return sinSesion(res);
+      if (!await sesionDe(req)) return sinSesion(res);
       try { return json(res, 200, await eventos.catalogo()); } catch (e) { return responderError(res, e, "eventos-catalogo"); }
     }
     if (ruta === "/api/v1/eventos" && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         const r = await eventos.recibir(await leerCuerpo(req), { sesion });
         log(`eventos: ${r.estado === 201 ? "creado" : "repetido"} id ${r.cuerpo.id} ${r.cuerpo.name || ""}`);
@@ -252,13 +252,13 @@ const servidor = http.createServer(async (req, res) => {
     }
     // F06 · vencimientos legales (ver y cargar: solo HyS — responsable / inspector / desarrollo)
     if (ruta === "/api/v1/vencimientos" && req.method === "GET") {
-      const sesion = sesionDe(req);
+      const sesion = await sesionDe(req);
       if (!sesion) return sinSesion(res);
       try { await vencimientos.autorizar(sesion); return json(res, 200, await vencimientos.listar()); } catch (e) { return responderError(res, e, "vencimientos-listar"); }
     }
     if (ruta === "/api/v1/vencimientos" && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         try { await vencimientos.autorizar(sesion); } catch (e) { req.resume(); throw e; }
         const r = await vencimientos.recibir(await leerCuerpo(req), { sesion });
@@ -268,14 +268,14 @@ const servidor = http.createServer(async (req, res) => {
     }
     // F07 · desvíos abiertos y cierre (solo HyS, como vencimientos)
     if (ruta === "/api/v1/desvios" && req.method === "GET") {
-      const sesion = sesionDe(req);
+      const sesion = await sesionDe(req);
       if (!sesion) return sinSesion(res);
       try { await desvios.autorizar(sesion); return json(res, 200, await desvios.listar()); } catch (e) { return responderError(res, e, "desvios-listar"); }
     }
     const mCierre = /^\/api\/v1\/desvios\/(\d+)\/cierre$/.exec(ruta);
     if (mCierre && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         try { await desvios.autorizar(sesion); } catch (e) { req.resume(); throw e; }
         const r = await desvios.cerrar(Number(mCierre[1]), await leerCuerpo(req), { sesion });
@@ -317,7 +317,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (ruta === "/api/v1/inspecciones" && req.method === "POST") {
       try {
-        const sesion = sesionDe(req);
+        const sesion = await sesionDe(req);
         if (!sesion) { req.resume(); return sinSesion(res); }
         const cuerpo = await leerCuerpo(req);
         const r = await inspecciones.recibir(cuerpo, { claveCabecera: req.headers["idempotency-key"] || null, sesion });

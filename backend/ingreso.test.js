@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { crearIngreso, leerClaves, normalizarClave, SIN_CLAVE } from "./ingreso.js";
+import { crearIngreso, leerClaves, normalizarClave, claveDeInspector, SIN_CLAVE } from "./ingreso.js";
 import { crearInspecciones } from "./inspecciones.js";
 
 // Inspectores de EJEMPLO (repo público): 2 = legajo 0001, 3 = legajo 0002, 5 = activo sin contraseña, 4 = archivado.
@@ -18,8 +18,8 @@ test("cada inspector entra solo con SU contraseña", async () => {
   assert.equal(a.inspector.id, 2); assert.ok(a.token);
   const b = await g.ingresar({ inspector_id: 3, clave: "dos-ejemplo" });
   assert.equal(b.inspector.id, 3);
-  assert.deepEqual(g.verificar(a.token), { inspector_id: 2, legajo: "1" });
-  assert.deepEqual(g.verificar(b.token), { inspector_id: 3, legajo: "2" });
+  assert.deepEqual(await g.verificar(a.token), { inspector_id: 2, legajo: "1" });
+  assert.deepEqual(await g.verificar(b.token), { inspector_id: 3, legajo: "2" });
 });
 
 test("cruzadas fallan: 0001 con la de 0002 y viceversa; vacía falla", async () => {
@@ -65,17 +65,17 @@ test("token: alterado, vencido o con contraseña cambiada → no vale", async ()
   let env = { ...ENV };
   const g = crearIngreso({ catalogos, claves: () => leerClaves(env), secreto: "s", ahora: () => t0 });
   const { token } = await g.ingresar({ inspector_id: 2, clave: "peña-uno" });
-  assert.ok(g.verificar(token));
+  assert.ok(await g.verificar(token));
   const [datos, firma] = token.split(".");
   const otro = Buffer.from(JSON.stringify({ i: 3, l: "1", e: t0 + 1e9 })).toString("base64url");
-  assert.equal(g.verificar(`${otro}.${firma}`), null);           // se hace pasar por otro
-  assert.equal(g.verificar(`${datos}.x${firma.slice(1)}`), null); // firma tocada
-  assert.equal(g.verificar(""), null);
+  assert.equal(await g.verificar(`${otro}.${firma}`), null);           // se hace pasar por otro
+  assert.equal(await g.verificar(`${datos}.x${firma.slice(1)}`), null); // firma tocada
+  assert.equal(await g.verificar(""), null);
   env = { ...ENV, HYS_PWD_0001: "nueva" };
-  assert.equal(g.verificar(token), null);                         // cambió la contraseña
+  assert.equal(await g.verificar(token), null);                         // cambió la contraseña
   env = { ...ENV };
   t0 += 61 * 24 * 3600 * 1000;
-  assert.equal(g.verificar(token), null);                         // venció (60 días)
+  assert.equal(await g.verificar(token), null);                         // venció (60 días)
 });
 
 test("8 fallos seguidos → bloqueo de 15 min para ese inspector (no para el otro)", async () => {
@@ -109,7 +109,7 @@ test("de punta a punta: el inspector que ingresó queda en «cargado por»", asy
     x_fecha_hora_control: "2026-10-19 12:00:00", x_gps_estado: "denegado", x_idempotency_key: K, x_cargado_por: "lo que mande el celular",
     x_linea_ids: [[0, 0, { x_name: "Ítem", x_bloque: "General", x_respuesta: "si" }]] } } };
   const { token } = await g.ingresar({ inspector_id: 3, clave: "dos-ejemplo" });
-  await api.recibir(cuerpo, { sesion: g.verificar(token) });
+  await api.recibir(cuerpo, { sesion: await g.verificar(token) });
   assert.equal(db[0].x_cargado_por, "Legajo 0002 · Inspector Ejemplo Dos · Inspector HyS · OT 9101");
 });
 
@@ -117,7 +117,51 @@ test("encargado de sector activo con HYS_PWD_<legajo> entra; sin la variable, no
   const cat = { buscarInspector: async (id) => (id === 7 ? { id: 7, x_name: "Encargado Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito" } : null) };
   const g = crearIngreso({ catalogos: cat, claves: () => leerClaves({ HYS_PWD_0004: "clave-ejemplo" }), secreto: "s" });
   const r = await g.ingresar({ inspector_id: 7, clave: "clave-ejemplo" });
-  assert.deepEqual(g.verificar(r.token), { inspector_id: 7, legajo: "4" });
+  assert.deepEqual(await g.verificar(r.token), { inspector_id: 7, legajo: "4" });
   const sin = crearIngreso({ catalogos: cat, claves: () => leerClaves({}), secreto: "s" });
   await rechaza(sin.ingresar({ inspector_id: 7, clave: "x" }), 403);
+});
+
+test("claveDeInspector: Odoo gana si x_hys_password no está vacío; si no, entorno", () => {
+  const env = leerClaves({ HYS_PWD_0001: "de-env" });
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: "de-odoo" }, env), "de-odoo");
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: "  de-odoo  " }, env), "de-odoo");
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: false }, env), "de-env");
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: "" }, env), "de-env");
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: null }, env), "de-env");
+  assert.equal(claveDeInspector({ x_legajo: "0005", x_hys_password: false }, env), null);
+  assert.equal(claveDeInspector({ x_legajo: "0001", x_hys_password: "pe\u00f1a-odoo" }, env), "peña-odoo");
+});
+
+test("login con x_hys_password de Odoo: entra, falla si está mal, y el env no alcanza si Odoo tiene valor", async () => {
+  const cat = { buscarInspector: async (id) => (id === 2
+    ? { id: 2, x_name: "Inspector Ejemplo Uno", x_legajo: "0001", x_hys_password: "solo-odoo" }
+    : null) };
+  const g = crearIngreso({ catalogos: cat, claves: () => leerClaves({ HYS_PWD_0001: "de-env" }), secreto: "s" });
+  const ok = await g.ingresar({ inspector_id: 2, clave: "solo-odoo" });
+  assert.ok(ok.token);
+  assert.deepEqual(await g.verificar(ok.token), { inspector_id: 2, legajo: "1" });
+  await rechaza(g.ingresar({ inspector_id: 2, clave: "de-env" }), 401, /incorrecta/);
+  await rechaza(g.ingresar({ inspector_id: 2, clave: "otra" }), 401, /incorrecta/);
+});
+
+test("sin x_hys_password (vacío/false) → sigue valiendo HYS_PWD_<legajo>", async () => {
+  const cat = { buscarInspector: async (id) => (id === 2
+    ? { id: 2, x_name: "Inspector Ejemplo Uno", x_legajo: "0001", x_hys_password: false }
+    : null) };
+  const g = crearIngreso({ catalogos: cat, claves: () => leerClaves({ HYS_PWD_0001: "de-env" }), secreto: "s" });
+  assert.ok((await g.ingresar({ inspector_id: 2, clave: "de-env" })).token);
+});
+
+test("cambiar x_hys_password invalida el token anterior", async () => {
+  let pwd = "primera";
+  const cat = { buscarInspector: async (id) => (id === 2
+    ? { id: 2, x_name: "Inspector Ejemplo Uno", x_legajo: "0001", x_hys_password: pwd }
+    : null) };
+  const g = crearIngreso({ catalogos: cat, claves: () => leerClaves({}), secreto: "s" });
+  const { token } = await g.ingresar({ inspector_id: 2, clave: "primera" });
+  assert.ok(await g.verificar(token));
+  pwd = "segunda";
+  assert.equal(await g.verificar(token), null);
+  assert.ok((await g.ingresar({ inspector_id: 2, clave: "segunda" })).token);
 });
