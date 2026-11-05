@@ -22,9 +22,9 @@ function armar({ accionPdf = 565, respuesta = { hys_pdf_b64: PDF.toString("base6
   return { api: crearAts(() => ({ ejecutar }), { departamentos: null, accionPdf }), llamadas };
 }
 
-test("encargado del sector → PDF del ATS por la acción de servidor", async () => {
+test("inspector HyS → PDF del ATS por la acción de servidor", async () => {
   const { api, llamadas } = armar();
-  const r = await api.pdf(7, { sesion: { inspector_id: 4 } });
+  const r = await api.pdf(7, { sesion: { inspector_id: 2 } });
   assert.equal(r.nombre, "ATS-2026-00007.pdf");
   assert.ok(r.pdf.equals(PDF));
   const run = llamadas.find((l) => l.met === "run");
@@ -39,24 +39,23 @@ test("encargado de su sector → OK; de otro sector → 403 sin pedir el PDF", a
   assert.ok(!llamadas.some((l) => l.met === "run"));
 });
 
-test("sin sesión 401 · id inválido 400 · inexistente 404 · inspector HyS 403 · inactivo 403", async () => {
+test("sin sesión 401 · id inválido 400 · inexistente 404 · inspector inactivo 403", async () => {
   const { api } = armar();
   await assert.rejects(api.pdf(7, {}), (e) => e.estado === 401);
-  await assert.rejects(api.pdf(0, { sesion: { inspector_id: 4 } }), (e) => e.estado === 400);
-  await assert.rejects(api.pdf(99, { sesion: { inspector_id: 4 } }), (e) => e.estado === 404);
-  await assert.rejects(api.pdf(7, { sesion: { inspector_id: 2 } }), (e) => e.estado === 403); // inspector HyS
+  await assert.rejects(api.pdf(0, { sesion: { inspector_id: 2 } }), (e) => e.estado === 400);
+  await assert.rejects(api.pdf(99, { sesion: { inspector_id: 2 } }), (e) => e.estado === 404);
   await assert.rejects(api.pdf(7, { sesion: { inspector_id: 50 } }), (e) => e.estado === 403);
 });
 
 test("sin ODOO_ATS_PDF_ACCION_ID → 503", async () => {
-  await assert.rejects(armar({ accionPdf: null }).api.pdf(7, { sesion: { inspector_id: 4 } }), (e) => e.estado === 503);
+  await assert.rejects(armar({ accionPdf: null }).api.pdf(7, { sesion: { inspector_id: 2 } }), (e) => e.estado === 503);
   assert.equal(leerAccionPdf({}), null);
   assert.equal(leerAccionPdf({ ODOO_ATS_PDF_ACCION_ID: "565" }), 565);
   assert.equal(leerAccionPdf({ ODOO_ATS_PDF_ACCION_ID: "abc" }), null);
 });
 
 test("Odoo devuelve algo que no es PDF → ErrorOdoo (502); error de Odoo se propaga", async () => {
-  await assert.rejects(armar({ respuesta: { hys_pdf_b64: Buffer.from("<html>").toString("base64") } }).api.pdf(7, { sesion: { inspector_id: 4 } }), (e) => e.name === "Error" && /PDF/.test(e.message));
-  await assert.rejects(armar({ respuesta: false }).api.pdf(7, { sesion: { inspector_id: 4 } }), /PDF/);
-  await assert.rejects(armar({ falla: new Error("AccessError") }).api.pdf(7, { sesion: { inspector_id: 4 } }), /AccessError/);
+  await assert.rejects(armar({ respuesta: { hys_pdf_b64: Buffer.from("<html>").toString("base64") } }).api.pdf(7, { sesion: { inspector_id: 2 } }), (e) => e.name === "Error" && /PDF/.test(e.message));
+  await assert.rejects(armar({ respuesta: false }).api.pdf(7, { sesion: { inspector_id: 2 } }), /PDF/);
+  await assert.rejects(armar({ falla: new Error("AccessError") }).api.pdf(7, { sesion: { inspector_id: 2 } }), /AccessError/);
 });

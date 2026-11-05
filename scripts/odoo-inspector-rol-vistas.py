@@ -134,7 +134,7 @@ def patch_list(arch: str) -> str:
     # Inserta rol + sector_id justo después de x_tipo (una sola vez).
     return arch.replace(
         LIST_INSERT_AFTER,
-        '<field name="x_tipo"/><field name="x_rol"/><field name="x_sector_id" optional="show"/>',
+        '<field name="x_tipo"/><field name="x_rol" string="Rol"/><field name="x_sector_id" string="Sector" optional="show"/>',
         1,
     )
 
@@ -157,8 +157,8 @@ def patch_form(arch: str) -> str:
             m.group(1)
             + "</group>\n"
             + '    <group string="Rol en la app">'
-            + '<field name="x_rol" widget="radio" options="{\'horizontal\': true}"/>'
-            + '<field name="x_sector_id" invisible="x_rol != \'encargado\'" '
+            + '<field name="x_rol" string="Rol" widget="radio" options="{\'horizontal\': true}"/>'
+            + '<field name="x_sector_id" string="Sector" invisible="x_rol != \'encargado\'" '
             + 'required="x_rol == \'encargado\'"/>'
             + "</group>"
         )
@@ -166,8 +166,8 @@ def patch_form(arch: str) -> str:
     insert = (
         '<field name="x_active" widget="boolean_toggle"/></group>\n'
         '    <group string="Rol en la app">'
-        '<field name="x_rol" widget="radio" options="{\'horizontal\': true}"/>'
-        '<field name="x_sector_id" invisible="x_rol != \'encargado\'" '
+        '<field name="x_rol" string="Rol" widget="radio" options="{\'horizontal\': true}"/>'
+        '<field name="x_sector_id" string="Sector" invisible="x_rol != \'encargado\'" '
         'required="x_rol == \'encargado\'"/>'
         "</group>"
     )

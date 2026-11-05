@@ -213,11 +213,12 @@ export function validarAts(cuerpo, ctx) {
 }
 
 /** ¿Puede este usuario cargar un ATS de este sector?
- *  Solo encargados de ESE sector (Jorge 05/11/2026: el ATS no lo cargan los inspectores).
- *  x_sector ya viene resuelto (selection vieja o código desde x_sector_id). */
+ *  Encargado: solo SU sector. Inspector HyS (u otro rol): cualquier sector (respaldo D-03).
+ *  x_sector del encargado ya viene resuelto (selection vieja o código desde x_sector_id). */
 export function puedeCargar(insp, sector) {
-  if (!insp || insp.x_rol !== "encargado") return false;
-  return !!sector && insp.x_sector === sector;
+  if (!insp) return false;
+  if (insp.x_rol === "encargado") return !!sector && insp.x_sector === sector;
+  return true; // inspector HyS (x_rol vacío/inspector = respaldo)
 }
 
 export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf(), empresasIds = leerEmpresas(), flagObra = leerFlagAtsObra() } = {}) {
@@ -351,10 +352,7 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
       const cargador = await leerInspector(idCargador, c);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
       if (!puedeCargar(cargador, v.x_sector)) {
-        const msg = cargador.x_rol === "encargado"
-          ? `Tu usuario es encargado de otro sector: no podés cargar el ATS de ${c.sectores[v.x_sector].nombre}.`
-          : "El ATS de turno lo cargan los encargados de sector u obra, no los inspectores HyS.";
-        throw new ErrorEntrada(403, msg);
+        throw new ErrorEntrada(403, `Tu usuario es encargado de otro sector: no podés cargar el ATS de ${c.sectores[v.x_sector].nombre}.`);
       }
 
       return enSerie(async () => {
@@ -393,7 +391,7 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     return p;
   }
 
-  /** PDF imprimible del ATS (reporte QWeb de Odoo). Mismo permiso que cargar: solo el encargado de ese sector.
+  /** PDF imprimible del ATS (reporte QWeb de Odoo). Mismo permiso que cargar: encargado solo su sector, inspector HyS cualquiera.
    *  Odoo no abre sesión web con API key, así que /report/pdf no sirve: se ejecuta por RPC la acción de servidor
    *  «HyS · PDF del ATS (backend)» (ODOO_ATS_PDF_ACCION_ID), que devuelve el PDF en base64. */
   async function pdf(id, { sesion = null } = {}) {
@@ -408,10 +406,7 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     const cargador = await leerInspector(idCargador, c);
     if (!cargador) throw new ErrorEntrada(403, "Tu usuario ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
     if (!puedeCargar(cargador, a.x_sector)) {
-      const msg = cargador.x_rol === "encargado"
-        ? "Tu usuario es encargado de otro sector: no podés ver el PDF de este ATS."
-        : "El PDF del ATS lo ven los encargados de ese sector, no los inspectores HyS.";
-      throw new ErrorEntrada(403, msg);
+      throw new ErrorEntrada(403, "Tu usuario es encargado de otro sector: no podés ver el PDF de este ATS.");
     }
     const r = await ej("ir.actions.server", "run", [[accionPdf]], { context: { active_model: "x_hys_ats", active_id: id, active_ids: [id] } });
     const buf = typeof r?.hys_pdf_b64 === "string" ? Buffer.from(r.hys_pdf_b64, "base64") : null;
