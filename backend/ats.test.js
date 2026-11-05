@@ -19,7 +19,9 @@ const EMPLEADOS = [{ id: 17, name: "Encargado Ejemplo", job_title: "Encargado", 
 const EMPRESAS = [{ id: 1, name: "COOP. EL SOL EJEMPLO" }, { id: 3, name: "CORMET EJEMPLO" }, { id: 2, name: "OTRA EMPRESA" }]; // 18 no se puede leer (regla de RR. HH.)
 const INSPECTORES = [{ id: 2, x_name: "Inspector Ejemplo", x_legajo: "0001", x_rol: "inspector", x_active: true },
   { id: 3, x_name: "Encargado Logística Ejemplo", x_legajo: "0003", x_rol: "encargado", x_sector: "logistica", x_active: true },
-  { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true }];
+  { id: 4, x_name: "Encargado Depósito Ejemplo", x_legajo: "0004", x_rol: "encargado", x_sector: "deposito", x_active: true },
+  { id: 5, x_name: "Encargado Obra Ejemplo", x_legajo: "0005", x_rol: "encargado", x_sector: "obra", x_active: true },
+  { id: 6, x_name: "Encargado Corte Ejemplo", x_legajo: "0006", x_rol: "encargado", x_sector: "sec_12", x_active: true }];
 const K = (n) => `6f1c2a9e-1111-4222-8333-${String(n).padStart(12, "0")}`;
 const FOTO = "data:image/jpeg;base64,AAAA";
 
@@ -86,7 +88,11 @@ function cuerpo(cambios = {}, { sector = "deposito", clave = K(1), lineas } = {}
   };
   return { formulario: "F08", idempotency_key: clave, odoo: { model: "x_hys_ats", method: "create", vals } };
 }
-const SES = { inspector_id: 2, legajo: "1" };
+const SES = { inspector_id: 2, legajo: "1" }; // inspector HyS (respaldo D-03: puede cargar cualquier sector)
+const SES_DEP = { inspector_id: 4, legajo: "4" };
+const SES_LOG = { inspector_id: 3, legajo: "3" };
+const SES_OBRA = { inspector_id: 5, legajo: "5" };
+const SES_LASER = { inspector_id: 6, legajo: "6" };
 const lineasCon = (cod, extra, sector = "deposito") => cuerpo({}, { sector }).odoo.vals.x_linea_ids.map(([a, b, l]) => [a, b, l.x_item_codigo === cod ? { ...l, ...extra } : l]);
 const err = (p, estado, re) => assert.rejects(p, (e) => e.estado === estado && (!re || re.test(e.message)));
 
@@ -191,13 +197,19 @@ test("turno de otro sector / día sin turno / fecha futura → 422", async () =>
   await err(api.recibir(cuerpo({ x_fecha: "2026-10-23" }), { sesion: SES }), 422, /más de un día/);
 });
 
-test("encargado de otro sector → 403; encargado de su sector → 201; sin sesión → 401", async () => {
+test("encargado de otro sector → 403; encargado de su sector → 201; inspector → 201; sin sesión → 401", async () => {
   const { api } = armar();
   await err(api.recibir(cuerpo(), { sesion: { inspector_id: 3, legajo: "3" } }), 403, /otro sector/);
-  const r = await api.recibir(cuerpo({}, { clave: K(7) }), { sesion: { inspector_id: 4, legajo: "4" } });
+  const r = await api.recibir(cuerpo({}, { clave: K(7) }), { sesion: SES_DEP });
   assert.equal(r.estado, 201);
   await err(api.recibir(cuerpo({}, { clave: K(8) }), { sesion: null }), 401);
+  // Inspector HyS respaldo (D-03): otro día para no chocar con el ATS ya válido del turno
+  const rInsp = await api.recibir(cuerpo({ x_fecha: "2026-10-21" }, { clave: K(9) }), { sesion: SES });
+  assert.equal(rInsp.estado, 201);
   assert.equal(puedeCargar({ x_rol: false }, "deposito"), true);
+  assert.equal(puedeCargar({ x_rol: "inspector" }, "deposito"), true);
+  assert.equal(puedeCargar({ x_rol: "encargado", x_sector: "deposito" }, "deposito"), true);
+  assert.equal(puedeCargar({ x_rol: "encargado", x_sector: "logistica" }, "deposito"), false);
 });
 
 test("cargado después del inicio → antes_de_turno falso; más de 24 h después → carga tardía", async () => {

@@ -42,13 +42,43 @@ export function armarFicha(r, mapa, hitos) {
 export function crearCatalogos(cliente) {
   let inspectores = { lista: null, hasta: 0, fuente: null };
 
+  /** Normaliza códigos de x_hys_sector (p. ej. «corte laser» → «corte_laser»). */
+  function normalizarCodigoSector(c) {
+    if (c === false || c == null || c === "") return null;
+    return String(c).trim().toLowerCase().replace(/\s+/g, "_");
+  }
+
+  /** Sector del encargado: selection vieja x_sector, o {codigo,nombre} desde x_hys_sector vía x_sector_id. */
+  async function sectorDeInspector(r) {
+    if (r.x_rol !== "encargado") return { sector: null, sector_nombre: null };
+    if (r.x_sector) {
+      return { sector: normalizarCodigoSector(r.x_sector) || r.x_sector,
+        sector_nombre: Array.isArray(r.x_sector_id) ? (r.x_sector_id[1] || null) : null };
+    }
+    const sid = Array.isArray(r.x_sector_id) ? r.x_sector_id[0] : r.x_sector_id;
+    const nombreM2o = Array.isArray(r.x_sector_id) ? (r.x_sector_id[1] || null) : null;
+    if (!sid) return { sector: null, sector_nombre: null };
+    try {
+      const secs = await cliente().ejecutar("x_hys_sector", "search_read", [[["id", "=", sid]]],
+        { fields: ["id", "x_codigo", "x_name"], limit: 1 });
+      const row = secs[0];
+      if (!row) return { sector: null, sector_nombre: nombreM2o };
+      const sector = normalizarCodigoSector(row.x_codigo) || `sec_${row.id}`;
+      return { sector, sector_nombre: row.x_name || nombreM2o };
+    } catch (e) { return { sector: null, sector_nombre: nombreM2o }; }
+  }
+
   async function leerInspectores() {
     if (inspectores.lista && Date.now() < inspectores.hasta) return inspectores;
     const regs = await cliente().ejecutar("x_hys_inspector", "search_read", [[["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector"], order: "x_name, id" });
-    const lista = regs.map((r) => ({ id: r.id, nombre: String(r.x_name || "").trim(), legajo: r.x_legajo ? String(r.x_legajo).trim() : null,
-      tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null,
-      rol: r.x_rol || "inspector", sector: r.x_rol === "encargado" ? r.x_sector || null : null }));
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_sector_id"], order: "x_name, id" });
+    const lista = [];
+    for (const r of regs) {
+      const { sector, sector_nombre } = await sectorDeInspector(r);
+      lista.push({ id: r.id, nombre: String(r.x_name || "").trim(), legajo: r.x_legajo ? String(r.x_legajo).trim() : null,
+        tipo: r.x_tipo || "interno", empresa: r.x_empresa ? String(r.x_empresa).trim() : null,
+        rol: r.x_rol || "inspector", sector, sector_nombre });
+    }
     lista.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
     inspectores = { lista, hasta: Date.now() + CACHE_MS, fuente: "x_hys_inspector" };
     return inspectores;
@@ -58,8 +88,16 @@ export function crearCatalogos(cliente) {
    *  Incluye x_hys_password SOLO acá (servidor): la lista pública de /inspectores no lo pide ni lo expone. */
   async function buscarInspector(id) {
     const r = await cliente().ejecutar("x_hys_inspector", "search_read", [[["id", "=", id], ["x_active", "=", true]]],
-      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_hys_password"], limit: 1 });
-    return r[0] || null;
+      { fields: ["id", "x_name", "x_legajo", "x_tipo", "x_empresa", "x_rol", "x_sector", "x_sector_id", "x_hys_password"], limit: 1 });
+    const row = r[0] || null;
+    if (!row) return null;
+    // Para login/sesión: el sector del encargado (selection o tabla), código normalizado.
+    if (row.x_rol === "encargado") {
+      const { sector, sector_nombre } = await sectorDeInspector(row);
+      row.x_sector = sector;
+      row.x_sector_nombre = sector_nombre;
+    }
+    return row;
   }
 
   // ---------------------------------------------------------------- F01 · fichas de riesgo (x_hys_ficha)

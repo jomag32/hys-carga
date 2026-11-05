@@ -17,6 +17,12 @@ export const SECTOR_OBRA = { obra: { nombre: "Obra", plantilla: "F08_OBRA", requ
 /** Todos los sectores que el código conoce (planta + obra). Respaldo si Odoo todavía no tiene la tabla x_hys_sector. */
 export const SECTORES = { ...SECTORES_PLANTA, ...SECTOR_OBRA };
 
+/** Normaliza códigos de x_hys_sector (espacios → guión bajo). Exportado para tests / catalogos. */
+export function normalizarCodigoSector(c) {
+  if (c === false || c == null || c === "") return null;
+  return String(c).trim().toLowerCase().replace(/\s+/g, "_");
+}
+
 /** Tabla de sectores de Odoo (x_hys_sector, ámbito ATS) → {codigo: {id, nombre, plantilla, requiere_ot}}.
  *  Sin la tabla (Odoo sin migrar) o vacía → null (el que llama usa SECTORES, la selection vieja). */
 export async function leerSectoresOdoo(ej) {
@@ -24,8 +30,10 @@ export async function leerSectoresOdoo(ej) {
     const r = await ej("x_hys_sector", "search_read", [[["x_active", "=", true], ["x_ambito", "in", ["ats", "ambos", false]]]],
       { fields: ["id", "x_name", "x_codigo", "x_plantilla", "x_requiere_ot", "x_secuencia"], order: "x_secuencia, id" });
     if (!Array.isArray(r) || !r.length) return null;
-    return Object.fromEntries(r.map((x) => [x.x_codigo || `sec_${x.id}`,
-      { id: x.id, nombre: x.x_name, plantilla: x.x_plantilla || SECTORES[x.x_codigo]?.plantilla || "F08_DEP", requiere_ot: !!x.x_requiere_ot }]));
+    return Object.fromEntries(r.map((x) => {
+      const codigo = normalizarCodigoSector(x.x_codigo) || `sec_${x.id}`;
+      return [codigo, { id: x.id, nombre: x.x_name, plantilla: x.x_plantilla || SECTORES[codigo]?.plantilla || SECTORES[x.x_codigo]?.plantilla || "F08_DEP", requiere_ot: !!x.x_requiere_ot }];
+    }));
   } catch (e) {
     console.log("ats: sin tabla x_hys_sector, uso la selection x_sector", e instanceof ErrorOdoo ? e.message : e?.name);
     return null;
@@ -212,11 +220,13 @@ export function validarAts(cuerpo, ctx) {
   return { errores, vals };
 }
 
-/** ¿Puede este usuario de carga mandar un ATS de este sector? */
+/** ¿Puede este usuario cargar un ATS de este sector?
+ *  Encargado: solo SU sector. Inspector HyS (u otro rol): cualquier sector (respaldo D-03).
+ *  x_sector del encargado ya viene resuelto (selection vieja o código desde x_sector_id). */
 export function puedeCargar(insp, sector) {
   if (!insp) return false;
-  if (insp.x_rol === "encargado") return insp.x_sector === sector;
-  return true; // inspector HyS (x_rol vacío = inspector, registros anteriores)
+  if (insp.x_rol === "encargado") return !!sector && insp.x_sector === sector;
+  return true; // inspector HyS (x_rol vacío/inspector = respaldo)
 }
 
 export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos(), ahora = () => Date.now(), accionPdf = leerAccionPdf(), empresasIds = leerEmpresas(), flagObra = leerFlagAtsObra() } = {}) {
@@ -349,7 +359,9 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
       if (errores.length) throw new ErrorEntrada(422, errores.map((e) => e.mensaje).join(" · "), { errores });
       const cargador = await leerInspector(idCargador, c);
       if (!cargador) throw new ErrorEntrada(422, "Quien carga ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
-      if (!puedeCargar(cargador, v.x_sector)) throw new ErrorEntrada(403, `Tu usuario es encargado de otro sector: no podés cargar el ATS de ${c.sectores[v.x_sector].nombre}.`);
+      if (!puedeCargar(cargador, v.x_sector)) {
+        throw new ErrorEntrada(403, `Tu usuario es encargado de otro sector: no podés cargar el ATS de ${c.sectores[v.x_sector].nombre}.`);
+      }
 
       return enSerie(async () => {
         const ya = (await ej("x_hys_ats", "search_read", [[["x_idempotency_key", "=", clave]]], { fields: ["id"], limit: 1, context: { active_test: false } }))[0];
@@ -401,7 +413,9 @@ export function crearAts(cliente, { catalogos, departamentos = leerDepartamentos
     const a = { ...a0, x_sector: codigoSector(a0, c.tabla ? c.sectores : null) };
     const cargador = await leerInspector(idCargador, c);
     if (!cargador) throw new ErrorEntrada(403, "Tu usuario ya no figura como activo en Odoo (HyS > Inspectores). Avisá a HyS.");
-    if (!puedeCargar(cargador, a.x_sector)) throw new ErrorEntrada(403, "Tu usuario es encargado de otro sector: no podés ver el PDF de este ATS.");
+    if (!puedeCargar(cargador, a.x_sector)) {
+      throw new ErrorEntrada(403, "Tu usuario es encargado de otro sector: no podés ver el PDF de este ATS.");
+    }
     const r = await ej("ir.actions.server", "run", [[accionPdf]], { context: { active_model: "x_hys_ats", active_id: id, active_ids: [id] } });
     const buf = typeof r?.hys_pdf_b64 === "string" ? Buffer.from(r.hys_pdf_b64, "base64") : null;
     if (!buf || buf.subarray(0, 5).toString("latin1") !== "%PDF-") throw new ErrorOdoo("Odoo no devolvió un PDF");

@@ -18,8 +18,8 @@ import { botonPdfAts, tienePdfAts } from "./componentes/pdf-ats.js";
 import { vistaManual } from "./componentes/manual.js";
 
 // Códigos y nombres tal cual el diseño (Anexo B).
-/** Un encargado de sector solo ve el ATS de turno (F08); el backend igual lo controla. */
-// Encargados: F08 y F05 (el registro de accidente lo puede hacer cualquiera). F06 (cargar y ver #/vencimientos) y F07 (cierre de desvíos): solo HyS.
+/** Encargados de sector: solo F08 (+ F05). Inspectores HyS: todos los formularios, ATS incluido
+ *  como respaldo (D-03 / Jorge 05/11/2026). F06/F07: solo HyS. El backend controla el sector del encargado. */
 export const ROLES_HYS = ["inspector", "responsable", "desarrollo"];
 export const esHys = (u) => !!u && ROLES_HYS.includes(u.rol_hys || "inspector");
 export const formulariosDe = (u) => (u?.rol_hys === "encargado" ? FORMULARIOS.filter((f) => f.cod === "F08" || f.cod === "F05")
@@ -152,6 +152,15 @@ function vistaIngreso() {
       entrarConLugar(lugarSector(ops[0].sector, ops[0].name));
       return;
     }
+    // Encargado sin sector en Odoo: mensaje claro (nunca paso 3 en blanco).
+    if (u?.rol_hys === "encargado" && ops.length === 0) {
+      app.replaceChildren(marca, pasos(3), h("h1", {}, "¿Dónde estás?"),
+        h("p", { class: "ayuda", id: "ingreso-quien" }, `Ingresaste como ${u?.nombre || ""}.`),
+        h("p", { class: "aviso error", id: "aviso-sin-sector" }, "No tenés sector asignado, pedí a HyS que lo cargue en Odoo"),
+        h("a", { class: "btn secundario", id: "btn-otro-inspector", href: "#/salir" }, "← No soy yo / Salir"),
+        bloqueInstalar(), etiquetaVersion());
+      return;
+    }
     d.lugar_clave = undefined;
     const cuerpo = h("div", { id: "paso-lugar" });
     const pintar = () => {
@@ -176,8 +185,14 @@ function vistaIngreso() {
       bloqueInstalar(), etiquetaVersion());
     pintar();
     // Sectores de Odoo (tabla x_hys_sector): si llegan, reemplazan las opciones fijas. Sin señal → quedan las fijas.
+    // Si el encargado tenía una opción sintetizada y el catálogo trae la misma, se actualiza el nombre.
     leerCatalogoAts().then((cat) => {
       const nuevas = opcionesLugarPara(u, cat?.sectores);
+      if (u?.rol_hys === "encargado" && nuevas.length === 1 && nuevas[0].tipo === "sector"
+        && document.getElementById("paso-lugar") === cuerpo && d.lugar_clave === undefined) {
+        entrarConLugar(lugarSector(nuevas[0].sector, nuevas[0].name));
+        return;
+      }
       if (nuevas.length && document.getElementById("paso-lugar") === cuerpo && d.lugar_clave === undefined) { ops = nuevas; pintar(); }
     }).catch(() => {});
   };
