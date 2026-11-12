@@ -12,7 +12,7 @@ const CAMPOS = {
     x_ot_id: {}, x_hito_id: {}, x_ficha_hito_id: {}, x_ficha_id: {}, x_inspector_hys_id: {}, x_inspector_texto: {}, x_tc_nombre: {}, x_tc_firma: { type: "binary" },
     x_tc_observaciones: {}, x_firma_inspector: { type: "binary" }, x_fecha_hora_control: {}, x_fecha_vencimiento: {}, x_fecha_recepcion: {},
     x_idempotency_key: {}, x_cargado_por: {}, x_linea_ids: {}, x_cant_no: {}, x_validador_id: {}, x_validacion_estado: S("no_aplica", "pendiente", "validada", "objetada"),
-    x_presencial_obligatoria: {} },
+    x_presencial_obligatoria: {}, x_sector_visita: S("carpinteria", "estructura", "conformado", "corte_laser", "deposito", "logistica", "carpinteria_estructura", "conformado_corte_laser", "deposito_logistica", "obra") },
   x_hys_inspeccion_linea: { x_name: {}, x_bloque: {}, x_item_codigo: {}, x_secuencia: {}, x_respuesta: S("si", "no", "na"), x_criticidad: S("critico", "mayor", "menor"),
     x_foto: { type: "binary" }, x_comentario: {}, x_sector: S(...SECTORES_FABRICA.map(([k]) => k)), x_obs_tc: {}, x_inspeccion_id: {} },
   x_hys_config: { x_name: {}, x_jefe_produccion_id: {}, x_validador_fabrica_id: {}, x_coo_id: {}, x_f03_dia_vence: {}, x_f04_dia_vence: {} }
@@ -20,7 +20,7 @@ const CAMPOS = {
 const CONFIG = { id: 1, x_jefe_produccion_id: [31, "Jefe de Producción Ejemplo"], x_validador_fabrica_id: [32, "Dirección de Fábrica Ejemplo"],
   x_coo_id: [33, "COO Ejemplo"], x_f03_dia_vence: "vie", x_f04_dia_vence: 7 };
 
-function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config, sectores = null, camposLinea = null } = {}) {
+function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config, sectores = null, camposLinea = null, sinSectorVisita = false } = {}) {
   const db = registros.map((r) => ({ ...r }));
   let sig = Math.max(0, ...db.map((r) => r.id)) + 1;
   const llamadas = [];
@@ -33,9 +33,21 @@ function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig
     if (op === "in") return val.includes(v);
     throw new Error(`op ${op}`);
   };
+  const camposDe = (modelo) => {
+    if (modelo === "x_hys_config") return camposConfig;
+    if (modelo === "x_hys_inspeccion_linea" && camposLinea) return camposLinea;
+    const c = { ...(CAMPOS[modelo] || {}) };
+    if (sinSectorVisita && modelo === "x_hys_inspeccion") delete c.x_sector_visita;
+    return c;
+  };
+  const exigeCampo = (modelo, nombre) => {
+    if (sinSectorVisita && modelo === "x_hys_inspeccion" && nombre === "x_sector_visita") {
+      throw new Error("Invalid field 'x_sector_visita' on 'x_hys_inspeccion'");
+    }
+  };
   async function ejecutar(modelo, metodo, args = [], kwargs = {}) {
     llamadas.push({ modelo, metodo, args, kwargs });
-    if (metodo === "fields_get") return modelo === "x_hys_config" ? camposConfig : modelo === "x_hys_inspeccion_linea" && camposLinea ? camposLinea : CAMPOS[modelo];
+    if (metodo === "fields_get") return camposDe(modelo);
     if (modelo === "x_hys_sector_resp") { if (!sectores) throw new Error("Object x_hys_sector_resp doesn't exist"); return sectores; }
     if (modelo === "x_hys_config") return [config];
     if (modelo === "x_hys_item_plantilla") {
@@ -44,6 +56,8 @@ function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig
       return (items?.[f] || []).map((x, i) => ({ id: i + 1, x_codigo: x.codigo, x_name: x.nombre, x_bloque: x.bloque, x_secuencia: x.secuencia, x_admite_na: true }));
     }
     if (metodo === "search_read") {
+      for (const f of kwargs.fields || []) exigeCampo(modelo, f);
+      for (const d of args[0] || []) if (Array.isArray(d)) exigeCampo(modelo, d[0]);
       const r = db.filter((x) => args[0].every((d) => cumple(x, d)));
       return kwargs.limit ? r.slice(0, kwargs.limit) : r;
     }
@@ -362,4 +376,65 @@ test("sin el campo x_responsable_id en la línea: no se manda (no rompe)", async
   assert.equal(r.estado, 201);
   const ins = db.find((x) => x.x_formulario === "F03");
   assert.ok(ins.x_linea_ids.every(([, , l]) => l.x_responsable_id === undefined));
+});
+
+test("F03 visita sectorial completa la programada de ese sector y día; la semanal oficial no se toca", async () => {
+  const semanal = { id: 24, x_name: "F03 programada · semana del 19/10/2026", x_formulario: "F03", x_tipo_programa: "recorrida_semanal",
+    x_estado: "programada", x_ambito: "fabrica", x_lugar: "fabrica", x_fecha_vencimiento: "2026-10-24 02:59:00", x_validacion_estado: "no_aplica" };
+  const sector = { id: 80, x_name: "F03 programada · Carpintería / Estructura · 21/10/2026", x_formulario: "F03",
+    x_tipo_programa: "recorrida_semanal", x_estado: "programada", x_ambito: "fabrica", x_lugar: "fabrica",
+    x_sector_visita: "carpinteria_estructura", x_fecha_vencimiento: "2026-10-22 02:59:00", x_validacion_estado: "no_aplica" };
+  const { recibir, db, api } = armar({ registros: [semanal, sector] });
+  const r = await recibir(f03({ extra: { x_sector_visita: "carpinteria_estructura" } }));
+  assert.equal(r.cuerpo.programada_completada, 80);
+  assert.equal(r.cuerpo.id, 80);
+  assert.equal(db.find((x) => x.id === 80).x_estado, "realizada");
+  assert.equal(db.find((x) => x.id === 24).x_estado, "programada");
+  assert.equal(db.length, 2);
+  // Una recorrida semanal oficial después sí cierra la del viernes.
+  const r2 = await recibir(f03());
+  assert.equal(r2.cuerpo.programada_completada, 24);
+  assert.equal(db.find((x) => x.id === 24).x_estado, "realizada");
+});
+
+test("F03 sector de otro día o de otro sector no cierra esa programada: crea una nueva", async () => {
+  const sector = { id: 80, x_name: "F03 programada · Depósito · 23/10/2026", x_formulario: "F03",
+    x_estado: "programada", x_sector_visita: "deposito_logistica", x_fecha_vencimiento: "2026-10-24 02:59:00",
+    x_tipo_programa: "recorrida_semanal", x_ambito: "fabrica" };
+  const { recibir, db } = armar({ registros: [sector] });
+  const r = await recibir(f03({ extra: { x_sector_visita: "carpinteria_estructura" } }));
+  assert.notEqual(r.cuerpo.id, 80);
+  assert.equal(db.find((x) => x.id === 80).x_estado, "programada");
+  assert.equal(r.cuerpo.programada_completada, undefined);
+});
+
+test("catálogo F03 incluye programadas_hoy (sector del día y semanal de la semana)", async () => {
+  const semanal = { id: 24, x_name: "F03 programada · semana", x_formulario: "F03", x_tipo_programa: "recorrida_semanal",
+    x_estado: "programada", x_fecha_vencimiento: "2026-10-24 02:59:00" };
+  const sector = { id: 80, x_name: "F03 programada · Conformado / Corte láser · 21/10/2026", x_formulario: "F03",
+    x_estado: "programada", x_sector_visita: "conformado_corte_laser", x_fecha_vencimiento: "2026-10-22 02:59:00",
+    x_tipo_programa: "recorrida_semanal" };
+  const { api } = armar({ registros: [semanal, sector] });
+  const cat = await api.catalogo("F03", "fabrica", { ahoraUtc: "2026-10-21 12:00:00" });
+  const ids = cat.programadas_hoy.map((p) => p.id).sort();
+  assert.deepEqual(ids, [24, 80]);
+  assert.equal(cat.programadas_hoy.find((p) => p.id === 80).sector_visita, "conformado_corte_laser");
+  assert.ok(cat.sectores_visita.some(([k]) => k === "deposito_logistica"));
+});
+
+test("sin x_sector_visita en Odoo: F03 semanal y catálogo no piden el campo y siguen funcionando", async () => {
+  const prog = { id: 50, x_name: "F03 programada · semana", x_formulario: "F03", x_tipo_programa: "recorrida_semanal",
+    x_estado: "programada", x_ambito: "fabrica", x_lugar: "fabrica", x_fecha_vencimiento: "2026-10-24 02:59:00", x_validacion_estado: "no_aplica" };
+  const { recibir, db, api, llamadas } = armar({ registros: [prog], sinSectorVisita: true });
+  const cat = await api.catalogo("F03", "fabrica", { ahoraUtc: "2026-10-21 12:00:00" });
+  assert.equal(cat.programadas_hoy.some((p) => p.id === 50), true);
+  const r = await recibir(f03());
+  assert.equal(r.cuerpo.programada_completada, 50);
+  assert.equal(db[0].x_estado, "realizada");
+  const lecturas = llamadas.filter((x) => x.modelo === "x_hys_inspeccion" && x.metodo === "search_read");
+  assert.ok(lecturas.length);
+  for (const l of lecturas) {
+    assert.equal((l.kwargs.fields || []).includes("x_sector_visita"), false, "no debe pedir x_sector_visita");
+    assert.equal((l.args[0] || []).some((d) => Array.isArray(d) && d[0] === "x_sector_visita"), false);
+  }
 });

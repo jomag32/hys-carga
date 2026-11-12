@@ -5,7 +5,7 @@
 // de Fábrica en Odoo dentro de 24 h. La 2.ª recorrida de la semana se registra como «fuera de programa».
 
 import { prepararPlanta, pasoInspectorHys, pasosPorBloque, pasoTomaConocimientoPrecargada, pasoFirmaInspector, armarEnvioPlanta,
-  bloquesDe, resumenChecklist, textoInspector } from "./_inspeccion-planta.js";
+  cajaProgramadasHoy, bloquesDe, resumenChecklist, textoInspector } from "./_inspeccion-planta.js";
 import { campoOpciones } from "../componentes/campos.js";
 
 const OPC = { conSector: true };
@@ -20,7 +20,13 @@ export default {
       ...pasoInspectorHys(),
       dibujar: (d, c) => {
         if (!d.tipo_programa) d.tipo_programa = c.catalogo?.periodo?.realizada ? "fuera_programa" : "recorrida_semanal";
-        return [...pasoInspectorHys().dibujar(d, c),
+        return [
+          ...cajaProgramadasHoy(d, c, { alElegir: (p) => {
+            if (!p) return;
+            d.sector_visita = p.sector_visita || null;
+            if (!d.tipo_programa) d.tipo_programa = p.sector_visita ? "recorrida_semanal" : "recorrida_semanal";
+          } }),
+          ...pasoInspectorHys().dibujar(d, c),
           campoOpciones(d, "tipo_programa", "Tipo", [["recorrida_semanal", "Recorrida semanal"], ["fuera_programa", "Fuera de programa"]],
             { columnas: 2, requerido: true, ayuda: "Si ya hay una recorrida esta semana, igual se registra como «fuera de programa»." })];
       }
@@ -32,6 +38,7 @@ export default {
   ],
   resumen: (d, ctx) => [
     ["Lugar", "Fábrica"],
+    ...(d.sector_visita ? [["Sector", d.sector_visita]] : []),
     ["Tipo", d.tipo_programa === "fuera_programa" ? "Fuera de programa" : "Recorrida semanal"],
     ["Inspector", textoInspector(ctx.inspectores.find((e) => e.id === d.inspector_id))],
     ["Ítems", resumenChecklist(ctx.items, d)],

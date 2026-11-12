@@ -6,7 +6,7 @@ import { crearInspecciones, numeroDe, formatoNumero } from "./inspecciones.js";
 const S = (...v) => ({ type: "selection", selection: v.map((x) => [x, x]) });
 const CAMPOS = {
   x_hys_inspeccion: { x_name: {}, x_formulario: S("F02"), x_ambito: S("obra", "fabrica"), x_tipo_programa: S("periodica", "hito_critico"),
-    x_estado: S("realizada"), x_origen: S("formulario"), x_gps_estado: S("ok", "denegado"), x_ot_id: {}, x_hito_id: {}, x_inspector_hys_id: {},
+    x_estado: S("programada", "realizada", "cancelada"), x_origen: S("formulario"), x_fecha_vencimiento: {}, x_fecha_recepcion: {}, x_sector_visita: S("carpinteria", "obra"), x_gps_estado: S("ok", "denegado"), x_ot_id: {}, x_hito_id: {}, x_inspector_hys_id: {},
     x_inspector_texto: {}, x_tc_nombre: {}, x_tc_firma: { type: "binary" }, x_fecha_hora_control: {}, x_idempotency_key: {}, x_cargado_por: {}, x_linea_ids: {} },
   x_hys_inspeccion_linea: { x_name: {}, x_bloque: {}, x_respuesta: S("si", "no", "na"), x_criticidad: S("critico"), x_foto: { type: "binary" }, x_inspeccion_id: {} }
 };
@@ -20,6 +20,9 @@ function odooFalso({ registros = [], demora = 5, alCrear = null } = {}) {
     const v = r[campo];
     if (op === "=") return v === val;
     if (op === "ilike") return String(v ?? "").toLowerCase().includes(String(val).toLowerCase());
+    if (op === ">=") return v >= val;
+    if (op === "<=") return v <= val;
+    if (op === "in") return val.includes(v);
     throw new Error(`op no simulada ${op}`);
   };
   async function ejecutar(modelo, metodo, args = [], kwargs = {}) {
@@ -28,7 +31,7 @@ function odooFalso({ registros = [], demora = 5, alCrear = null } = {}) {
     if (metodo === "fields_get") return CAMPOS[modelo];
     if (modelo === "x_hys_inspector") return [{ id: 9, x_name: "Inspector Ejemplo", x_legajo: "1", x_tipo: "interno" }];
     if (metodo === "search_read") {
-      const r = db.filter((x) => args[0].every((d) => cumple(x, d))).map((x) => ({ id: x.id, x_name: x.x_name, x_idempotency_key: x.x_idempotency_key }));
+      const r = db.filter((x) => args[0].every((d) => cumple(x, d))).map((x) => ({ ...x }));
       return kwargs.limit ? r.slice(0, kwargs.limit) : r;
     }
     if (metodo === "create") {
@@ -187,4 +190,39 @@ test("un encargado de sector no carga F02 ni figura como inspector", async () =>
   const c = cuerpo(); c.odoo.vals.x_inspector_hys_id = 12;
   await assert.rejects(api.recibir(c), (e) => e.estado === 422 && /encargado de sector/.test(e.message));
   assert.equal(db.length, 0);
+});
+
+test("F02 completa la programada de la misma OT y día (no crea otra)", async () => {
+  const prog = { id: 70, x_name: "F02 programada · Cambium · 18/10/2026", x_formulario: "F02", x_estado: "programada",
+    x_ot_id: 6, x_tipo_programa: "periodica", x_fecha_vencimiento: "2026-10-19 02:59:00", x_ambito: "obra" };
+  const { api, db } = armar({ registros: [prog] });
+  const r = await api.recibir(cuerpo());
+  assert.equal(r.cuerpo.id, 70);
+  assert.equal(r.cuerpo.programada_completada, 70);
+  assert.equal(db.length, 1);
+  assert.equal(db[0].x_estado, "realizada");
+  assert.equal(db[0].x_name, "INS-2026-00001");
+  assert.equal(db[0].x_fecha_vencimiento, "2026-10-19 02:59:00");
+});
+
+test("F02 de otra OT o de otro día no cierra la programada: crea una nueva", async () => {
+  const prog = { id: 70, x_name: "F02 programada", x_formulario: "F02", x_estado: "programada",
+    x_ot_id: 4146, x_fecha_vencimiento: "2026-10-19 02:59:00" };
+  const { api, db } = armar({ registros: [prog] });
+  const r = await api.recibir(cuerpo());
+  assert.notEqual(r.cuerpo.id, 70);
+  assert.equal(db.find((x) => x.id === 70).x_estado, "programada");
+  assert.equal(r.cuerpo.programada_completada, undefined);
+});
+
+test("F02: programada_id del contexto cierra esa visita si es de la misma OT", async () => {
+  const a = { id: 71, x_name: "A", x_formulario: "F02", x_estado: "programada", x_ot_id: 6, x_fecha_vencimiento: "2026-10-19 02:59:00" };
+  const b = { id: 72, x_name: "B", x_formulario: "F02", x_estado: "programada", x_ot_id: 6, x_fecha_vencimiento: "2026-10-18 21:00:00" };
+  const { api, db } = armar({ registros: [a, b] });
+  const c = cuerpo();
+  c.contexto = { ...c.contexto, programada_id: 71 };
+  const r = await api.recibir(c);
+  assert.equal(r.cuerpo.programada_completada, 71);
+  assert.equal(db.find((x) => x.id === 71).x_estado, "realizada");
+  assert.equal(db.find((x) => x.id === 72).x_estado, "programada");
 });

@@ -15,7 +15,8 @@ import { checklist, validarChecklist, armarLineasYDesvios, resumenChecklist } fr
 import { camposControl, obraCorta } from "../componentes/campos-auto.js";
 import { leerSesion } from "../componentes/sesion.js";
 import { selectorInspector, textoInspector } from "../componentes/selector-inspector.js";
-import { leerInspectores, leerFichaObra, itemsPlantillaF02, aFormatoOdoo, validarInspeccion, SELECCION, CAMPOS_PENDIENTES_EN_ODOO } from "../api/odoo.js";
+import { leerInspectores, leerFichaObra, leerCatalogoPlanta, itemsPlantillaF02, aFormatoOdoo, validarInspeccion, SELECCION, CAMPOS_PENDIENTES_EN_ODOO } from "../api/odoo.js";
+import { cajaProgramadasHoy } from "./_inspeccion-planta.js";
 
 const KM_REMOTA = 50; // x_hys_config.x_distancia_remota_km
 const CLASES = { A: "Clase A · Alto riesgo", B: "Clase B · Riesgo medio", C: "Clase C · Bajo riesgo" };
@@ -53,6 +54,11 @@ export default {
     ctx.fichas = {};
     ctx.items = itemsPlantillaF02();
     ctx.inspectores = await leerInspectores(); // [{id, nombre, legajo}] de x_hys_inspector (backend) o ejemplos
+    ctx.programadas_hoy = [];
+    try {
+      const cat = await leerCatalogoPlanta("F02");
+      ctx.programadas_hoy = cat.programadas_hoy || [];
+    } catch { ctx.programadas_hoy = []; }
   },
   // Al abrir F02 (nuevo o retomando un borrador): la obra arranca SIEMPRE vacía (pedido de Jorge 18/10/2026
   // 22:35 y 22:50: «en blanco cada vez»). Un borrador guardado pierde la obra y lo que depende de ella
@@ -60,7 +66,7 @@ export default {
   // d.obra sin un toque: inicial() no la trae y el selector va con prefill:false.
   async retomar(d) {
     const habiaObra = d.obra !== undefined || d.obra_elegida !== undefined;
-    delete d.obra; delete d.obra_elegida;
+    delete d.obra; delete d.obra_elegida; delete d.programada_id;
     d.ficha_hito_id = null;
     if (habiaObra && esObra(d)) { d.respuestas = {}; d.modalidad = "presencial"; }
     return { pasoMax: esObra(d) ? 1 : undefined }; // 1 = paso «Obra» (después de «Tipo de inspección»)
@@ -70,12 +76,18 @@ export default {
     return [
       {
         titulo: "Tipo de inspección",
-        dibujar: (d) => [
+        dibujar: (d, ctx) => [
+          ...cajaProgramadasHoy(d, ctx, { alElegir: (p) => {
+            if (!p) return;
+            d.ambito = "obra";
+            if (!d.tipo_programa || d.tipo_programa === "fuera_programa") d.tipo_programa = p.tipo_programa || "periodica";
+            if (p.ot_id) d.obra = { id: p.ot_id, name: p.ot_nombre || String(p.ot_id) };
+          } }),
           campoOpciones(d, "ambito", "Ámbito", SELECCION.x_ambito, { columnas: 3, requerido: true,
             alCambiar: () => { if (!esObra(d)) { d.ficha_hito_id = null; } } }),
           // 2 columnas: las 6 opciones entran sin quedar debajo de la barra fija (390 × 844).
           campoOpciones(d, "tipo_programa", "Tipo", SELECCION.x_tipo_programa, { requerido: true, columnas: 2,
-            ayuda: "Si no te la asignaron en el programa, elegí «Fuera de programa».",
+            ayuda: "Si no te la asignaron en el programa, elegí «Fuera de programa». Si hay una visita del cronograma para hoy, elegila arriba.",
             alCambiar: (v) => { if (v !== "hito_critico") d.ficha_hito_id = null; if (PRESENCIAL_OBLIGATORIA.includes(v)) d.modalidad = "presencial"; } })],
         validar: (d) => (!d.ambito ? "Elegí el ámbito." : !d.tipo_programa ? "Elegí el tipo de inspección." :
           d.tipo_programa === "hito_critico" && !esObra(d) ? "El inicio de hito crítico es solo para obras." : null)
@@ -123,7 +135,7 @@ export default {
           // selectorObra primero (antes de pintar hito e info). Arranca VACÍO en todo F02 (prefill:false,
           // pedido de Jorge 18/10/2026): ni la obra del ingreso ni la última elegida ni la de un borrador
           // (retomar la borra). Dentro de la misma carga, la obra elegida se mantiene al ir y volver de paso.
-          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", prefill: false, alCambiar: () => { d.respuestas = {}; d.ficha_hito_id = null; pintar(); } });
+          const selector = selectorObra(d, "obra", { etiqueta: "Obra (OT)", prefill: false, alCambiar: () => { d.respuestas = {}; d.ficha_hito_id = null; if (d.programada_id) { const p = (ctx.programadas_hoy || []).find((x) => x.id === d.programada_id); if (p && p.ot_id && p.ot_id !== d.obra?.id) d.programada_id = null; } pintar(); } });
           pintar();
           return [selector, info, hito];
         },
@@ -217,6 +229,7 @@ export default {
       x_firma_inspector: d.firma_inspector || false,
       x_tc_observaciones: d.tc_obs?.trim() || false,
       x_origen: "formulario",
+      x_sector_visita: esObra(d) ? "obra" : false,
       ...camposControl(auto), // x_idempotency_key, x_fecha_hora_control, x_gps_*, x_cargado_por
       x_linea_ids: lineas     // [[0, 0, {...}], ...] = Command.create
     });
@@ -245,7 +258,8 @@ export default {
           campos_pendientes_en_odoo: CAMPOS_PENDIENTES_EN_ODOO,
           inspector_modelo: "x_hys_inspector",
           lugar: obraCorta(leerSesion().obra),
-          app: "hys-carga web"
+          app: "hys-carga web",
+          programada_id: d.programada_id || null
         }
       }
     };

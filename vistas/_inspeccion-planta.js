@@ -15,6 +15,30 @@ import { leerSesion } from "../componentes/sesion.js";
 // precargada (nombre servido por el backend desde Odoo, editable por si firma un reemplazo).
 // F04 (25/10/2026) usa lo mismo, con selector de lugar. Las funciones «de prueba» de abajo ya no las usa nadie conectado.
 
+
+const fechaCorta = (v) => (v ? String(v).slice(0, 10).split("-").reverse().join("/") : null);
+export function textoProgramada(p) {
+  const donde = p.sector_visita_nombre || p.ot_nombre || (p.formulario === "F03" ? "Recorrida semanal de Fábrica" : p.nombre);
+  return [donde, fechaCorta(p.vence), p.nombre].filter(Boolean).join(" · ");
+}
+
+/** Selector de la visita programada de hoy (cierra esa programada al enviar). */
+export function cajaProgramadasHoy(d, ctx, { alElegir } = {}) {
+  const lista = ctx.programadas_hoy || ctx.catalogo?.programadas_hoy || [];
+  if (!lista.length) return [];
+  return [
+    aviso("Hay visitas del cronograma para hoy. Si elegís una, se completa esa programada y no se crea otra.", "info"),
+    campoSelect(d, "programada_id", "Visita programada de hoy", lista.map((p) => [p.id, textoProgramada(p)]), {
+      vacio: "Ninguna / otra visita",
+      alCambiar: (id) => {
+        const p = lista.find((x) => x.id === Number(id) || x.id === id) || null;
+        if (p) d.programada_id = p.id;
+        else { d.programada_id = null; }
+        alElegir?.(p);
+      }
+    })];
+}
+
 /** Catálogo + inspectores HyS. Ítems con id = código (la clave de d.respuestas). */
 export async function prepararPlanta(ctx, formulario, lugar = "fabrica") {
   const [cat, inspectores] = await Promise.all([leerCatalogoPlanta(formulario, lugar), leerInspectoresHys()]);
@@ -72,6 +96,7 @@ export function armarEnvioPlanta(d, auto, ctx, { formulario, tipo, lugar, etique
     x_formulario: formulario, x_ambito: lugar, x_lugar: lugar, x_tipo_programa: tipo, x_estado: "realizada",
     x_inspector_hys_id: d.inspector_id, x_tc_nombre: d.tc_nombre.trim(), x_tc_firma: d.tc_firma,
     x_firma_inspector: d.firma_inspector || false, x_tc_observaciones: d.tc_obs?.trim() || false, x_origen: "formulario",
+    x_sector_visita: d.sector_visita || false,
     ...camposControl(auto), x_linea_ids: lineas });
   const errores = validarInspeccion(vals);
   if (errores.length) throw new Error(errores.map((x) => x.mensaje).join(" · "));
@@ -80,7 +105,7 @@ export function armarEnvioPlanta(d, auto, ctx, { formulario, tipo, lugar, etique
     operacion: "enviar", endpoint: "/inspecciones",
     auth: { inspector_id: yo?.id ?? null, token: yo?.token || null },
     cuerpo: { formulario, idempotency_key: auto.idempotency_key, odoo: { model: "x_hys_inspeccion", method: "create", vals },
-      contexto: { lugar: etiquetaLugar, modalidad: "presencial", cant_no: cantNo, inspector_modelo: "x_hys_inspector", app: "hys-carga web" } }
+      contexto: { lugar: etiquetaLugar, modalidad: "presencial", cant_no: cantNo, inspector_modelo: "x_hys_inspector", app: "hys-carga web", programada_id: d.programada_id || null, sector_visita: d.sector_visita || null } }
   };
 }
 

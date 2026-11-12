@@ -142,12 +142,29 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
     return v;
   }
 
+  // x_sector_visita todavía puede no existir en Odoo: no se pide el campo hasta que fields_get lo confirme.
+  let sectorVisitaHasta = 0, haySectorVisita = false;
+  async function hayCampoSectorVisita() {
+    const n = ahora();
+    if (n < sectorVisitaHasta) return haySectorVisita;
+    try {
+      const fg = await ej("x_hys_inspeccion", "fields_get", [], { attributes: ["type"] });
+      haySectorVisita = !!fg.x_sector_visita;
+    } catch { haySectorVisita = false; }
+    sectorVisitaHasta = n + CACHE_MS;
+    return haySectorVisita;
+  }
+
   /** Inspecciones del período (por x_fecha_vencimiento) del mismo programa. */
   async function delPeriodo(formulario, reglas, periodo) {
     const dom = [["x_formulario", "=", formulario], ["x_tipo_programa", "=", reglas.tipo],
       ["x_fecha_vencimiento", ">=", periodo.inicio], ["x_fecha_vencimiento", "<=", periodo.fin]];
     if (formulario === "F04") dom.push(["x_lugar", "=", reglas.lugar]);
-    return ej("x_hys_inspeccion", "search_read", [dom], { fields: ["id", "x_name", "x_estado"], order: "id" });
+    const fields = ["id", "x_name", "x_estado", "x_tipo_programa", "x_ot_id", "x_fecha_vencimiento"];
+    if (await hayCampoSectorVisita()) fields.push("x_sector_visita");
+    const regs = await ej("x_hys_inspeccion", "search_read", [dom], { fields, order: "id" });
+    // La recorrida/check oficial no incluye las visitas sectoriales del cronograma.
+    return (regs || []).filter((r) => !r.x_sector_visita);
   }
 
   /** GET /api/v1/inspecciones/catalogo?formulario=F03|F04[&lugar=fabrica|oficina] */
@@ -189,6 +206,6 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
     };
   }
 
-  const olvidar = () => { cfg = { v: null, hasta: 0 }; items.clear(); };
+  const olvidar = () => { cfg = { v: null, hasta: 0 }; items.clear(); sectorVisitaHasta = 0; haySectorVisita = false; };
   return { config, leerItems, delPeriodo, catalogo, delSector, olvidar };
 }
