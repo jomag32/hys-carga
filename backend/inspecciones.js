@@ -4,6 +4,7 @@ import { validarYFiltrar } from "./validar.js";
 import { ErrorOdoo } from "./odoo.js";
 import { textoInspector } from "./catalogos.js";
 import { crearPlanta, reglasDe, periodoDe, avisoSinValidador } from "./planta.js";
+import { crearProgramadas, elegirProgramada, SECTORES_VISITA } from "./programadas.js";
 
 const CAMPOS_MS = 10 * 60 * 1000;
 const PRESENCIAL_OBLIGATORIA = ["apertura", "hito_critico"];
@@ -15,7 +16,12 @@ export class ErrorEntrada extends Error {
   constructor(estado, mensaje, extra = {}) { super(mensaje); this.estado = estado; this.extra = extra; }
 }
 
-export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cliente) } = {}) {
+function idPedido(ctx) {
+  const n = Number(ctx?.programada_id);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cliente), programadas = crearProgramadas(cliente) } = {}) {
   let campos = null, camposHasta = 0;
   const enCurso = new Map(); // clave → promesa (dos envíos simultáneos con la misma clave = uno solo)
 
@@ -224,10 +230,26 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
         // Programa (D-01/D-02/decisión 7): vence el día configurado; si ya hay una realizada en el
         // período → fuera_programa (y se avisa); si hay una programada → se completa esa.
         const per = periodoDe(vals.x_fecha_hora_control, { periodo: reglas.periodo, diaVence: cfgPlanta.dia_vence, diaMes: cfgPlanta.dia_mes });
+        const sectorVisita = vals.x_sector_visita || ctx.sector_visita || null;
+        const programadaId = idPedido(ctx);
         const decidir = async () => {
           const extra = {};
           let idProgramada = null;
-          if (vals.x_tipo_programa === "fuera_programa") vals.x_fecha_vencimiento = vals.x_fecha_hora_control;
+          // Visita sectorial del cronograma (F03 con x_sector_visita): cierra la programada de ese
+          // sector y día. No usa el cupo de la recorrida semanal oficial ni la deja como «fuera de programa».
+          if (vals.x_formulario === "F03" && sectorVisita) {
+            const regs = await programadas.buscarDelDia("F03", vals.x_fecha_hora_control, { sectorVisita });
+            if (programadaId && !regs.some((r) => r.id === programadaId)) {
+              const pedida = await programadas.leerPorId(programadaId);
+              if (pedida) regs.push(pedida);
+            }
+            const prog = elegirProgramada(regs, { formulario: "F03", sectorVisita, fechaControl: vals.x_fecha_hora_control, programadaId });
+            if (prog) {
+              idProgramada = prog.id;
+              extra.programada_completada = prog.id;
+              if (prog.x_fecha_vencimiento) vals.x_fecha_vencimiento = prog.x_fecha_vencimiento;
+            } else if (!vals.x_fecha_vencimiento) vals.x_fecha_vencimiento = vals.x_fecha_hora_control;
+          } else if (vals.x_tipo_programa === "fuera_programa") vals.x_fecha_vencimiento = vals.x_fecha_hora_control;
           else {
             const regs = await planta.delPeriodo(vals.x_formulario, reglas, per);
             if (regs.some((r) => r.x_estado === "realizada")) {
@@ -239,7 +261,10 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
                 : "Ya había un check realizado este mes en este lugar: este se registró como «fuera de programa».";
             } else {
               vals.x_fecha_vencimiento = per.vence;
-              const prog = regs.find((r) => r.x_estado === "programada");
+              // Recorrida semanal / check mensual: la programada oficial vence el día configurado
+              // (viernes o día 7), no el día en que se hace. No se usa el cruce por mismo día.
+              const prog = (programadaId && regs.find((r) => r.id === programadaId && r.x_estado === "programada"))
+                || regs.find((r) => r.x_estado === "programada");
               if (prog) { idProgramada = prog.id; extra.programada_completada = prog.id; }
             }
           }
@@ -257,16 +282,53 @@ export function crearInspecciones(cliente, catalogos, { planta = crearPlanta(cli
         });
         return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...extra, ...(r.repetido ? { repetido: true } : {}) }) };
       }
-      if (soloValidar) return { estado: 200, cuerpo: { simulado: true, vals, descartados } };
+      const decidirF02 = async () => {
+        const extra = {};
+        let idProgramada = null;
+        if (vals.x_formulario === "F02" && vals.x_ot_id) {
+          const programadaId = idPedido(ctx);
+          const regs = await programadas.buscarDelDia("F02", vals.x_fecha_hora_control, { otId: vals.x_ot_id });
+          if (programadaId && !regs.some((r) => r.id === programadaId)) {
+            const pedida = await programadas.leerPorId(programadaId);
+            if (pedida) regs.push(pedida);
+          }
+          const prog = elegirProgramada(regs, { formulario: "F02", otId: vals.x_ot_id, fechaControl: vals.x_fecha_hora_control, programadaId });
+          if (prog) {
+            idProgramada = prog.id;
+            extra.programada_completada = prog.id;
+            if (prog.x_fecha_vencimiento) vals.x_fecha_vencimiento = prog.x_fecha_vencimiento;
+          }
+        }
+        return { idProgramada, extra };
+      };
+      if (soloValidar) {
+        const d = await decidirF02();
+        return { estado: 200, cuerpo: { simulado: true, vals, descartados, ...d.extra } };
+      }
 
-      const r = await crearNumerado(vals, anio, clave);
-      return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...(r.repetido ? { repetido: true } : {}) }) };
+      const { r, extra } = await enSerie(async () => {
+        const ya2 = await buscarPorClave(clave);
+        if (ya2) return { r: { id: ya2.id, name: ya2.x_name, repetido: true }, extra: {} };
+        const d = await decidirF02();
+        return { r: await crearNumeradoYa(vals, anio, clave, d.idProgramada), extra: d.extra };
+      });
+      return { estado: r.repetido ? 200 : 201, cuerpo: respuesta(r.id, r.name, { descartados, ...extra, ...(r.repetido ? { repetido: true } : {}) }) };
     })().finally(() => enCurso.delete(clave));
     if (!soloValidar) enCurso.set(clave, p);
     return p;
   }
 
-  return { recibir, leerCampos, catalogo: (f, l) => planta.catalogo(f, l) };
+  async function catalogo(formulario, lugar = null, { ot = null, ahoraUtc = null } = {}) {
+    const reglas = reglasDe(formulario, lugar);
+    const base = reglas ? await planta.catalogo(formulario, lugar) : (formulario === "F02" ? { formulario: "F02", items: [], periodo: null } : null);
+    if (!base) return null;
+    const fecha = ahoraUtc || new Date().toISOString().slice(0, 19).replace("T", " ");
+    const semana = reglas?.periodo === "semana" ? periodoDe(fecha) : null;
+    const programadas_hoy = await programadas.listarHoy(formulario, { ahoraUtc: fecha, otId: ot || null, semana });
+    return { ...base, sectores_visita: SECTORES_VISITA, programadas_hoy };
+  }
+
+  return { recibir, leerCampos, catalogo };
 }
 
 /** Número NNNNN de un nombre «…INS-AAAA-NNNNN…» (con o sin prefijo de prueba); null si no es de ese año. */

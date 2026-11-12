@@ -147,7 +147,10 @@ export function crearPlanta(cliente, { ahora = () => Date.now() } = {}) {
     const dom = [["x_formulario", "=", formulario], ["x_tipo_programa", "=", reglas.tipo],
       ["x_fecha_vencimiento", ">=", periodo.inicio], ["x_fecha_vencimiento", "<=", periodo.fin]];
     if (formulario === "F04") dom.push(["x_lugar", "=", reglas.lugar]);
-    return ej("x_hys_inspeccion", "search_read", [dom], { fields: ["id", "x_name", "x_estado"], order: "id" });
+    const fields = ["id", "x_name", "x_estado", "x_tipo_programa", "x_ot_id", "x_sector_visita", "x_fecha_vencimiento"];
+    const regs = await ej("x_hys_inspeccion", "search_read", [dom], { fields, order: "id" });
+    // La recorrida/check oficial no incluye las visitas sectoriales del cronograma.
+    return (regs || []).filter((r) => !r.x_sector_visita);
   }
 
   /** GET /api/v1/inspecciones/catalogo?formulario=F03|F04[&lugar=fabrica|oficina] */

@@ -16,7 +16,7 @@
 //   GET  /api/v1/obras?para=f01   → (sesión) igual que /obras pero con obras NO INICIADAS además de EN PROGRESO / PAUSADO
 //   GET  /api/v1/riesgos          → (sesión) riesgos activos de x_hys_riesgo [{id, codigo, nombre, gravedad}] para el F01
 //   POST /api/v1/fichas           → (sesión) create de x_hys_ficha (BORRADOR) + hitos; 201 nueva, 200 repetida, 409 si la OT ya tiene Ficha
-//   GET  /api/v1/inspecciones/catalogo?formulario=F03|F04[&lugar=] → (sesión) ítems, sectores, toma de conocimiento y aviso del período
+//   GET  /api/v1/inspecciones/catalogo?formulario=F02|F03|F04[&lugar=][&ot=] → (sesión) ítems (F03/F04), sectores de visita y programadas de hoy
 //   GET  /api/v1/ats/catalogo     → (sesión) F08: sectores, turnos, controles por sector y personas del sector (caché 5 min)
 //   GET  /api/v1/ats?sector=&fecha= → (sesión) ATS de ese sector y día (aviso «ya hay ATS para este turno»)
 //   GET  /api/v1/ats/:id/pdf      → (sesión) PDF imprimible del ATS (reporte de Odoo); encargado solo su sector
@@ -197,8 +197,9 @@ const servidor = http.createServer(async (req, res) => {
     if (ruta === "/api/v1/inspecciones/catalogo" && req.method === "GET") {
       const q = new URL(req.url, "http://x").searchParams;
       const f = q.get("formulario");
-      if (!["F03", "F04"].includes(f)) return json(res, 422, { error: "formulario tiene que ser F03 o F04" });
-      try { return json(res, 200, await inspecciones.catalogo(f, q.get("lugar"))); }
+      if (!["F02", "F03", "F04"].includes(f)) return json(res, 422, { error: "formulario tiene que ser F02, F03 o F04" });
+      const ot = q.get("ot") ? Number(q.get("ot")) : null;
+      try { return json(res, 200, await inspecciones.catalogo(f, q.get("lugar"), { ot: Number.isInteger(ot) && ot > 0 ? ot : null })); }
       catch (e) { return responderError(res, e, "inspecciones-catalogo"); }
     }
     if (ruta === "/api/v1/ats/catalogo" && req.method === "GET") {
@@ -330,7 +331,7 @@ const servidor = http.createServer(async (req, res) => {
       }
     }
     if (ruta === "/") return json(res, 200, { servicio: "hys-carga-api",
-      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf", "GET /api/v1/eventos/catalogo", "POST /api/v1/eventos", "GET /api/v1/vencimientos", "POST /api/v1/vencimientos", "GET /api/v1/desvios", "POST /api/v1/desvios/:id/cierre"] });
+      endpoints: ["GET /healthz", "GET /api/v1/obras", "GET /api/v1/inspectores", "GET /api/v1/fichas[?ot=<id>]", "GET /api/v1/hitos?ot=<id>", "GET /api/v1/riesgos", "POST /api/v1/ingreso", "POST /api/v1/inspecciones", "GET /api/v1/inspecciones/catalogo?formulario=F02|F03|F04", "POST /api/v1/fichas", "GET /api/v1/ats/catalogo", "GET /api/v1/ats?sector=&fecha=", "POST /api/v1/ats", "GET /api/v1/ats/:id/pdf", "GET /api/v1/eventos/catalogo", "POST /api/v1/eventos", "GET /api/v1/vencimientos", "POST /api/v1/vencimientos", "GET /api/v1/desvios", "POST /api/v1/desvios/:id/cierre"] });
     return json(res, 404, { error: "No existe" });
   } catch (e) {
     log("error inesperado", e?.name || "error");

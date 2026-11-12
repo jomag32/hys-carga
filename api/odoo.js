@@ -328,21 +328,33 @@ export async function leerCatalogoAts() {
   return { ...cat, sector_info, sectores: (cat.sectores || []).map((s) => (Array.isArray(s) ? s : [s.codigo, s.nombre])) };
 }
 
-/** Catálogo F03/F04 (GET /api/v1/inspecciones/catalogo, con sesión): ítems de la plantilla, sectores,
- *  nombre precargado de quien toma conocimiento (de Odoo, nunca del repo) y aviso del período.
- *  Ejemplo (?dev=1 / OBRAS_FUENTE ≠ backend): ítems de datos-mock.js y nombres de ejemplo. */
-export async function leerCatalogoPlanta(formulario, lugar = "fabrica") {
+export const SECTORES_VISITA = [
+  ["carpinteria", "Carpintería metálica"], ["estructura", "Estructura"], ["conformado", "Conformado"],
+  ["corte_laser", "Corte láser"], ["deposito", "Depósito central"], ["logistica", "Logística y mantenimiento"],
+  ["carpinteria_estructura", "Carpintería metálica / Estructura"],
+  ["conformado_corte_laser", "Conformado / Corte láser"],
+  ["deposito_logistica", "Depósito central / Logística y mantenimiento"],
+  ["obra", "Obra"],
+];
+
+/** Catálogo F02/F03/F04 (GET /api/v1/inspecciones/catalogo): ítems (F03/F04), sectores de visita
+ *  y programadas de hoy. Ejemplo (?dev=1 / OBRAS_FUENTE ≠ backend): ítems de datos-mock.js, sin programadas. */
+export async function leerCatalogoPlanta(formulario, lugar = "fabrica", { ot = null } = {}) {
   if (CONFIG.OBRAS_FUENTE !== "backend") {
-    const plantilla = formulario === "F03" ? "F03" : lugar === "oficina" ? "F04_OFI" : "F04_FAB";
-    return clonar({ formulario, lugar, plantilla, fuente_items: "ejemplo",
-      items: M.ITEMS_PLANTILLA.filter((i) => i.x_formulario === plantilla && i.x_active !== false)
-        .map((i) => ({ codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, secuencia: i.x_secuencia, critico: !!i.x_critico, admite_na: true })),
+    const plantilla = formulario === "F03" ? "F03" : formulario === "F04" ? (lugar === "oficina" ? "F04_OFI" : "F04_FAB") : null;
+    return clonar({ formulario, lugar, plantilla, fuente_items: plantilla ? "ejemplo" : null,
+      items: plantilla ? M.ITEMS_PLANTILLA.filter((i) => i.x_formulario === plantilla && i.x_active !== false)
+        .map((i) => ({ codigo: i.x_codigo, nombre: i.x_name, bloque: i.x_bloque, secuencia: i.x_secuencia, critico: !!i.x_critico, admite_na: true })) : [],
       sectores: formulario === "F03" ? null : [],
+      sectores_visita: SECTORES_VISITA,
+      programadas_hoy: [],
       toma_conocimiento: { nombre: formulario === "F03" || lugar === "fabrica" ? "Jefe de Producción Ejemplo" : null, editable: true },
       periodo: { realizada: false, programada: false, aviso: null } });
   }
-  const q = `formulario=${encodeURIComponent(formulario)}${lugar ? `&lugar=${encodeURIComponent(lugar)}` : ""}`;
-  return conCopia(`planta-${formulario}-${lugar || ""}`, () => leerDelBackend(`/inspecciones/catalogo?${q}`));
+  const q = new URLSearchParams({ formulario });
+  if (lugar) q.set("lugar", lugar);
+  if (ot) q.set("ot", String(ot));
+  return conCopia(`planta-${formulario}-${lugar || ""}-${ot || ""}`, () => leerDelBackend(`/inspecciones/catalogo?${q}`));
 }
 
 /** F05: empleados para «Persona involucrada» (GET /api/v1/eventos/catalogo, con sesión). */
