@@ -20,7 +20,7 @@ const CAMPOS = {
 const CONFIG = { id: 1, x_jefe_produccion_id: [31, "Jefe de Producción Ejemplo"], x_validador_fabrica_id: [32, "Dirección de Fábrica Ejemplo"],
   x_coo_id: [33, "COO Ejemplo"], x_f03_dia_vence: "vie", x_f04_dia_vence: 7 };
 
-function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config, sectores = null, camposLinea = null } = {}) {
+function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig = CAMPOS.x_hys_config, sectores = null, camposLinea = null, sinSectorVisita = false } = {}) {
   const db = registros.map((r) => ({ ...r }));
   let sig = Math.max(0, ...db.map((r) => r.id)) + 1;
   const llamadas = [];
@@ -33,9 +33,21 @@ function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig
     if (op === "in") return val.includes(v);
     throw new Error(`op ${op}`);
   };
+  const camposDe = (modelo) => {
+    if (modelo === "x_hys_config") return camposConfig;
+    if (modelo === "x_hys_inspeccion_linea" && camposLinea) return camposLinea;
+    const c = { ...(CAMPOS[modelo] || {}) };
+    if (sinSectorVisita && modelo === "x_hys_inspeccion") delete c.x_sector_visita;
+    return c;
+  };
+  const exigeCampo = (modelo, nombre) => {
+    if (sinSectorVisita && modelo === "x_hys_inspeccion" && nombre === "x_sector_visita") {
+      throw new Error("Invalid field 'x_sector_visita' on 'x_hys_inspeccion'");
+    }
+  };
   async function ejecutar(modelo, metodo, args = [], kwargs = {}) {
     llamadas.push({ modelo, metodo, args, kwargs });
-    if (metodo === "fields_get") return modelo === "x_hys_config" ? camposConfig : modelo === "x_hys_inspeccion_linea" && camposLinea ? camposLinea : CAMPOS[modelo];
+    if (metodo === "fields_get") return camposDe(modelo);
     if (modelo === "x_hys_sector_resp") { if (!sectores) throw new Error("Object x_hys_sector_resp doesn't exist"); return sectores; }
     if (modelo === "x_hys_config") return [config];
     if (modelo === "x_hys_item_plantilla") {
@@ -44,6 +56,8 @@ function odooFalso({ registros = [], items = null, config = CONFIG, camposConfig
       return (items?.[f] || []).map((x, i) => ({ id: i + 1, x_codigo: x.codigo, x_name: x.nombre, x_bloque: x.bloque, x_secuencia: x.secuencia, x_admite_na: true }));
     }
     if (metodo === "search_read") {
+      for (const f of kwargs.fields || []) exigeCampo(modelo, f);
+      for (const d of args[0] || []) if (Array.isArray(d)) exigeCampo(modelo, d[0]);
       const r = db.filter((x) => args[0].every((d) => cumple(x, d)));
       return kwargs.limit ? r.slice(0, kwargs.limit) : r;
     }
@@ -406,4 +420,21 @@ test("catálogo F03 incluye programadas_hoy (sector del día y semanal de la sem
   assert.deepEqual(ids, [24, 80]);
   assert.equal(cat.programadas_hoy.find((p) => p.id === 80).sector_visita, "conformado_corte_laser");
   assert.ok(cat.sectores_visita.some(([k]) => k === "deposito_logistica"));
+});
+
+test("sin x_sector_visita en Odoo: F03 semanal y catálogo no piden el campo y siguen funcionando", async () => {
+  const prog = { id: 50, x_name: "F03 programada · semana", x_formulario: "F03", x_tipo_programa: "recorrida_semanal",
+    x_estado: "programada", x_ambito: "fabrica", x_lugar: "fabrica", x_fecha_vencimiento: "2026-10-24 02:59:00", x_validacion_estado: "no_aplica" };
+  const { recibir, db, api, llamadas } = armar({ registros: [prog], sinSectorVisita: true });
+  const cat = await api.catalogo("F03", "fabrica", { ahoraUtc: "2026-10-21 12:00:00" });
+  assert.equal(cat.programadas_hoy.some((p) => p.id === 50), true);
+  const r = await recibir(f03());
+  assert.equal(r.cuerpo.programada_completada, 50);
+  assert.equal(db[0].x_estado, "realizada");
+  const lecturas = llamadas.filter((x) => x.modelo === "x_hys_inspeccion" && x.metodo === "search_read");
+  assert.ok(lecturas.length);
+  for (const l of lecturas) {
+    assert.equal((l.kwargs.fields || []).includes("x_sector_visita"), false, "no debe pedir x_sector_visita");
+    assert.equal((l.args[0] || []).some((d) => Array.isArray(d) && d[0] === "x_sector_visita"), false);
+  }
 });
